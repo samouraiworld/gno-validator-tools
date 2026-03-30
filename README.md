@@ -63,17 +63,20 @@ This directory contains all Ansible playbooks and roles to deploy and operate a 
 ## 2. Prerequisites
 
 **Control machine (where you run Ansible):**
+
 - Ansible >= 2.14
 - Python >= 3.10
 - `pip install ansible`
 - Docker Engine (required when `gno_validator_has_internet: false` — images are pulled locally and transferred as `.tar`)
 
 **Target hosts:**
+
 - Ubuntu or Debian
 - SSH key-based access as `root`
 - `gnoland` binary in `PATH` — installed by the `gnoland` role or `base_setup_validator.yaml`
 
 **DNS:**
+
 - A record for `loki_domain` pointing to your monitoring server (required for Let's Encrypt)
 
 ---
@@ -92,11 +95,11 @@ all:
     betanet:
       hosts:
         gno-sentry:
-          ansible_host: 51.159.14.234      # public IP
+          ansible_host: x.x.x.x      # public IP
           private_ip: 172.16.12.4
         gno-validator:
           ansible_host: 10.0.0.2           # private VLAN IP (set by pre_tasks)
-          public_ip: 51.159.14.235
+          public_ip: x.x.x.x
           private_ip: 172.16.12.2
 
     # Monitoring server — used by deploy-loki.yaml
@@ -182,6 +185,7 @@ ansible-playbook -i inventory.yaml deployment/base_setup_sentry.yaml    -e targe
 ### 5.2 Node deployment (`upload-betanet-deployment.yaml`)
 
 Deploys gnoland validator and sentry via Docker Compose. Two-play structure:
+
 - **Play 1** (`gno-sentry`): skipped when `gno_use_sentry: false`
 - **Play 2** (`gno-validator`): always runs
 
@@ -253,6 +257,7 @@ Scripts are installed to `{{ backup_dir }}` (default: `/opt/backup_logs`).
 Two-play playbook. Deploys the full Loki log aggregation stack.
 
 **Play 1 — monitoring server:**
+
 - Downloads Loki binary (v`{{ loki_version }}`) to `/opt/loki/`
 - Creates `loki` system user and `/var/lib/loki/` data directories
 - Deploys `/etc/loki/config.yml` from template
@@ -261,6 +266,7 @@ Two-play playbook. Deploys the full Loki log aggregation stack.
 - Requests Let's Encrypt TLS certificate for `{{ loki_domain }}`
 
 **Play 2 — sentry:**
+
 - Deploys `loki-proxy` NGINX vhost on port 80
 - Accepts log push from validator VLAN IPs only
 - Injects the Bearer token before forwarding to Loki — **validators never need the token**
@@ -277,6 +283,7 @@ ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml --tags proxy
 ```
 
 **Prerequisites:**
+
 - `group_vars/monitoring.yml` configured with `loki_domain`, `loki_bearer_token`, `loki_allowed_ips`
 - Domain DNS record pointing to monitoring server
 - NGINX installed on monitoring server (`base_setup` or the `nginx` role)
@@ -298,6 +305,7 @@ Validator → http://{{ sentry_private_ip }}/loki/api/v1/push
 ```
 
 **Prerequisites:**
+
 - `deploy-loki.yaml` run first (loki-proxy must be active on sentry)
 - `sentry_private_ip` set in `group_vars/betanet.yml`
 
@@ -310,6 +318,7 @@ ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml \
 ```
 
 Scraped logs:
+
 - `/var/lib/docker/containers/*/*.log` — gnoland container logs (label: `job: {{ promtail_job_name }}`)
 - `/var/log/syslog` — system logs
 
@@ -325,6 +334,7 @@ Validator → https://{{ loki_domain }}/loki/api/v1/push (Bearer token)
 ```
 
 **Prerequisites:**
+
 - `deploy-loki.yaml` run first
 - `loki_domain` and `loki_bearer_token` set in `group_vars/betanet.yml`
 - Validator has outbound internet access on port 443
@@ -390,6 +400,7 @@ ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml \
 
 - **Never commit** `group_vars/betanet.yml` or `group_vars/monitoring.yml` — add both to `.gitignore`.
 - Encrypt secrets with `ansible-vault`:
+
   ```bash
   # Encrypt the bearer token inline
   ansible-vault encrypt_string 'your-token-here' --name 'loki_bearer_token'
@@ -397,6 +408,7 @@ ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml \
   # Encrypt an entire vars file
   ansible-vault encrypt group_vars/monitoring.yml
   ```
+
 - `gno_secrets_init: true` **permanently destroys** the existing validator key. Set it back to `false` immediately after the first successful deployment.
 - In production, always use `gno_network_mode: private` with `gno_use_sentry: true` — the validator should never be reachable directly from the public internet.
 - Loki's `auth_enabled: false` means security relies entirely on NGINX (IP whitelist + Bearer token). Do not expose port 3100 directly.
