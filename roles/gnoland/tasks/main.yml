@@ -1,0 +1,54 @@
+---
+# tasks file for gnoland
+
+- name: Download Go
+  get_url:
+        url: https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
+        dest: /tmp/go1.25.0.linux-amd64.tar.gz
+        mode: '0644'
+
+- name: delete old install 
+  file:
+        path: /usr/local/go
+        state: absent
+
+- name: Extract Go in /usr/local
+  unarchive:
+        src: /tmp/go1.25.0.linux-amd64.tar.gz
+        dest: /usr/local
+        remote_src: yes
+
+- name: Add path go 
+  lineinfile:
+        path: /root/.bashrc
+        line: 'export PATH=$PATH:/usr/local/go/bin'
+        state: present
+ 
+- name:  git clone
+  git:
+    repo: "https://github.com/gnolang/gno.git"
+    dest:  "{{ gno_dir }}"
+    update: yes
+
+
+- name: Make install.gnoland
+  command:  make -C gno.land install.gnoland 
+  args:
+    chdir: "{{ gno_dir }}"
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
+
+- name: Make install.gnoland gogenesis
+  command:  make -C contribs/gnogenesis install
+  args:
+    chdir: "{{ gno_dir }}"
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
+
+
+- name: Add path gnoland
+  lineinfile:
+        path: /root/.bashrc
+        line: 'export PATH=$PATH:/root/go/bin'
+        state: present
+ 

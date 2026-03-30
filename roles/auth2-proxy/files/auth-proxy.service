@@ -1,0 +1,20 @@
+[Unit]
+Description=oauth2-proxy (Google SSO for Jaeger)
+After=network.target
+
+[Service]
+Type=simple
+# EnvironmentFile=/etc/oauth2-proxy/.env
+ExecStart=/opt/auth-proxy/oauth2-proxy --config /opt/auth-proxy/oauth2_proxy.cfg  
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=2
+# Sécurité minimale
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

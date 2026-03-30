@@ -1,0 +1,54 @@
+---
+# tasks file for auth2-proxy
+- name: download auth2-proxy
+  get_url:
+    url: https://github.com/oauth2-proxy/oauth2-proxy/releases/download/v7.12.0/oauth2-proxy-v7.12.0.linux-amd64.tar.gz
+    dest: /opt/auth-proxy.tar.gz
+
+- name: Extract auth2-proxy
+  unarchive:
+    src: /opt/auth-proxy.tar.gz
+    dest: /opt/
+    remote_src: yes
+
+- name: Rename directory  auth2-proxy
+  command: mv /opt/oauth2-proxy-v7.12.0.linux-amd64 /opt/auth-proxy
+  args:
+    removes: /opt/oauth2-proxy-v7.12.0.linux-amd64
+
+- name: Create config auth2-proxy
+  template:
+    src: oauth2_proxy.cfg.j2
+    dest: "/opt/auth-proxy/oauth2_proxy.cfg"
+    mode: '0644'
+
+- name: Copy file sa.json
+  copy:
+    src: sa.json
+    dest: /opt/auth-proxy/sa.json
+
+- name: Chown  /opt/auth-proxy
+  file:
+    path: /opt/auth-proxy
+    owner: www-data
+    group: www-data 
+    recurse: yes
+
+- name: Copy file for systemd auth2-proxy
+  copy:
+    src: auth-proxy.service
+    dest: /etc/systemd/system/auth-proxy.service
+  
+- name: Daemone-reload
+  command: systemctl daemon-reload
+  become: true
+
+- name: Activate systemd auth-proxy
+  systemd:
+    name: auth-proxy
+    enabled: true
+
+- name: start auth-proxy
+  command: |
+   systemctl start auth-proxy
+

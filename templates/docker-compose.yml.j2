@@ -1,0 +1,45 @@
+services:
+  validator:
+    image: "{{ image_url }}"
+    restart: on-failure
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./base-config.toml:/gnoroot/base-config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data-validator:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "{{ moniker_validator }}"
+      PERSISTENT_PEERS: "{{ persistent_peers_validator }}" # p2p_address sentry
+      PEX: "{{ pex_false }}"
+
+  sentry:
+    image: "{{ image_url }}"
+    restart: on-failure
+    ports:
+      - 26656:26656
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./base-config.toml:/gnoroot/base-config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data-sentry:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: " {{ moniker_sentry }}"
+      SEEDS: "{{ seeds }}"
+      PERSISTENT_PEERS: "{{ persistent_peers_sentry }} "
+      PRIVATE_PEER_IDS: "{{ private_peer_ids }}" # p2p_address of validator
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: on-failure
+    container_name: otel-collector
+    volumes:
+      - ./otel/otel-config.yaml:/etc/otel/config.yaml
+    command: [ "--config=/etc/otel/config.yaml" ]
+    ports:
+      - 9464:9464 # for Prometheus
+      - 127.0.0.1:4317:4317 # for Gnoland
+
+
+

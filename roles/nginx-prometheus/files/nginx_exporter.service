@@ -1,0 +1,12 @@
+[Unit]
+Description=NGINX Prometheus Exporter
+After=network.target
+
+[Service]
+User=nginx-exporter
+ExecStart=/opt/nginx_exporter/nginx-prometheus-exporter \
+  --nginx.scrape-uri=http://127.0.0.1:8787/nginx_status \
+  --web.listen-address=:9113
+
+[Install]
+WantedBy=multi-user.target

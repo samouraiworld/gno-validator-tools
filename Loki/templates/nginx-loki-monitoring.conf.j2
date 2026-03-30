@@ -1,0 +1,37 @@
+server {
+    server_name {{ loki_domain }};
+
+    location /loki/ {
+        # IP whitelist — only sentry nodes are allowed to push logs
+{% for ip in loki_allowed_ips %}
+        allow {{ ip }};
+{% endfor %}
+        deny all;
+
+        # Bearer token authentication
+        if ($http_authorization != "Bearer {{ loki_bearer_token }}") {
+            return 403;
+        }
+
+        proxy_pass http://127.0.0.1:{{ loki_http_port | default(3100) }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300s;
+    }
+
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/{{ loki_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ loki_domain }}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}
+
+server {
+    if ($host = {{ loki_domain }}) {
+        return 301 https://$host$request_uri;
+    }
+
+    listen 80;
+    server_name {{ loki_domain }};
+    return 404;
+}

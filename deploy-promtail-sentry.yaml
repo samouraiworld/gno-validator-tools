@@ -1,0 +1,152 @@
+---
+# =============================================================================
+# Deploy Promtail on validator — sentry relay mode
+#
+# Promtail ships logs to the sentry's loki-proxy (port 80, private VLAN).
+# The sentry injects the Bearer token and forwards to Loki over HTTPS.
+# Validators never need to know the Bearer token.
+#
+# Prerequisites:
+#   - Ubuntu/Debian on validator
+#   - loki-proxy NGINX vhost deployed on sentry (run deploy-loki.yaml first)
+#   - sentry reachable from validator on private VLAN (port 80)
+#   - group_vars/betanet.yml configured with sentry_private_ip
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml
+#   ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml \
+#     -e target=gno-validator-1
+# =============================================================================
+
+- name: Deploy Promtail on validator (sentry relay mode)
+  hosts: "{{ target | default('gno-validator') }}"
+  become: false
+
+  vars:
+    gno_network_mode: private
+    gno_sentry_ip: ""
+    gno_validator_private_ip: ""
+    gno_validator_public_ip: ""
+
+  pre_tasks:
+    - name: Set SSH connection for private network mode
+      ansible.builtin.set_fact:
+        ansible_host: "{{ gno_validator_private_ip }}"
+        ansible_ssh_common_args: "-J root@{{ gno_sentry_ip }}"
+      when:
+        - gno_network_mode == "private"
+        - gno_validator_private_ip != ""
+
+    - name: Set SSH connection for public network mode
+      ansible.builtin.set_fact:
+        ansible_host: "{{ gno_validator_public_ip }}"
+        ansible_ssh_common_args: ""
+      when:
+        - gno_network_mode == "public"
+        - gno_validator_public_ip != ""
+
+  handlers:
+    - name: Restart promtail
+      ansible.builtin.service:
+        name: promtail
+        state: restarted
+
+  tasks:
+    # --- Directories ----------------------------------------------------------
+    - name: Create Promtail directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0750"
+      loop:
+        - /opt/promtail
+        - /etc/promtail
+      tags: [promtail]
+
+    # --- Binary install -------------------------------------------------------
+    - name: Check if Promtail binary already installed
+      ansible.builtin.stat:
+        path: /opt/promtail/promtail
+      register: promtail_binary_stat
+      tags: [promtail]
+
+    - name: Download Promtail binary archive
+      ansible.builtin.get_url:
+        url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
+        dest: /tmp/promtail-linux-amd64.zip
+        mode: "0644"
+      when: not promtail_binary_stat.stat.exists
+      tags: [promtail]
+
+    - name: Install unzip
+      ansible.builtin.apt:
+        name: unzip
+        state: present
+        update_cache: false
+      when: not promtail_binary_stat.stat.exists
+      tags: [promtail]
+
+    - name: Extract Promtail binary
+      ansible.builtin.unarchive:
+        src: /tmp/promtail-linux-amd64.zip
+        dest: /opt/promtail/
+        remote_src: true
+        include:
+          - promtail-linux-amd64
+      when: not promtail_binary_stat.stat.exists
+      tags: [promtail]
+
+    - name: Rename Promtail binary
+      ansible.builtin.command:
+        cmd: mv /opt/promtail/promtail-linux-amd64 /opt/promtail/promtail
+        creates: /opt/promtail/promtail
+      tags: [promtail]
+
+    - name: Set Promtail binary permissions
+      ansible.builtin.file:
+        path: /opt/promtail/promtail
+        mode: "0755"
+      tags: [promtail]
+
+    # --- Configuration --------------------------------------------------------
+    - name: Deploy Promtail configuration (sentry relay mode)
+      ansible.builtin.template:
+        src: Loki/templates/promtail-config.yml.j2
+        dest: /etc/promtail/config.yml
+        mode: "0640"
+      notify: Restart promtail
+      tags: [promtail, config]
+
+    # --- Systemd service ------------------------------------------------------
+    - name: Deploy promtail.service systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/promtail.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Promtail log shipping agent
+          Documentation=https://grafana.com/docs/loki/latest/clients/promtail/
+          After=network.target docker.service
+          Wants=docker.service
+
+          [Service]
+          Type=simple
+          User=root
+          ExecStart=/opt/promtail/promtail -config.file=/etc/promtail/config.yml
+          Restart=on-failure
+          RestartSec=5s
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart promtail
+      tags: [promtail]
+
+    - name: Enable and start Promtail service
+      ansible.builtin.systemd:
+        name: promtail
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [promtail]

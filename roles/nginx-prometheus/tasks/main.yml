@@ -1,0 +1,88 @@
+---
+# tasks file for roles/nginx-prometheus
+
+- name: Creates directory
+  ansible.builtin.file:
+    path: /opt/nginx_exporter
+    state: directory
+
+
+- name: download node exporter prometheus
+  get_url:
+    url: https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.4.2/nginx-prometheus-exporter_1.4.2_linux_amd64.tar.gz
+    dest: /opt/nginx_exporter/nginx-prometheus-exporter.tar.gz
+
+
+- name: Extract exporter prometheus
+  unarchive:
+    src: /opt/nginx_exporter/nginx-prometheus-exporter.tar.gz
+    dest: /opt/nginx_exporter
+    remote_src: yes
+
+- name: Delete tar.gz
+  file:
+    path: /opt/nginx_exporter/nginx-prometheus-exporter.tar.gz
+    state: absent
+
+- name: Create user nginx-exporter
+  user:
+    name: nginx-exporter
+    shell: /bin/bash
+    create_home: no
+    state: present
+
+- name: Chown  /opt/nginx_exporter
+  file:
+    path: /opt/nginx_exporter
+    owner: nginx-exporter
+    group: nginx-exporter
+    recurse: yes
+
+- name: Copy file for systemd nginx_exporter
+  copy:
+    src: nginx_exporter.service
+    dest: /etc/systemd/system/nginx_exporter.service
+
+- name: Daemone-reload
+  command: systemctl daemon-reload
+  become: true
+
+- name: Create config nginx for get sub_status 
+  template:
+    src: nginx_site.conf.j2
+    dest: "/etc/nginx/sites-available/sub_status"
+    mode: '0644'
+
+- name: Activate 
+  file:
+    src: "/etc/nginx/sites-available/sub_status"
+    dest: "/etc/nginx/sites-enabled/sub_status"
+    state: link
+    force: true
+
+# - name: check conf NGINX
+#   command: nginx -t
+#   register: nginx_test
+#   failed_when: "'successful' not in nginx_test.stdout"
+
+- name: Restart  NGINX
+  service:
+    name: nginx
+    state: restarted
+    enabled: true
+
+- name: Daemone-reload
+  command: systemctl daemon-reload
+  become: true
+
+- name: Activate systenmd nginx_exporter
+  systemd:
+    name: nginx_exporter
+    enabled: true
+
+- name: Starting nginx_exporter
+  systemd:
+    name: nginx_exporter
+    state: started
+
+

@@ -1,0 +1,103 @@
+---
+# =============================================================================
+# Deploy log backup and rotation scripts for validator and sentry nodes
+#
+# - validator: installs backup.sh — extracts last 24h of gnoland logs,
+#              compresses them and SCPs to the sentry node
+# - sentry:    installs rotate.sh — enforces 30-day log retention
+#
+# Both scripts are scheduled via cron at 00:10 daily.
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml deployment/backup_logs.sh.yaml
+#
+# Variables:
+#   gno_network_mode         - private (default) or public
+#   gno_sentry_ip            - sentry public IP (used as SSH jump when private)
+#   gno_validator_private_ip - validator private VLAN IP (used when private)
+#   gno_validator_public_ip  - validator public IP (used when public)
+#   backup_dir               - directory for scripts and logs (default: /opt/backup_logs)
+# =============================================================================
+
+- name: Deploy log backup scripts
+  hosts: betanet
+  become: false
+
+  vars:
+    gno_network_mode: private
+    gno_sentry_ip: ""
+    gno_validator_private_ip: ""
+    gno_validator_public_ip: ""
+    backup_dir: /opt/backup_logs
+
+  pre_tasks:
+    - name: Set SSH connection for validator (private network mode)
+      ansible.builtin.set_fact:
+        ansible_host: "{{ gno_validator_private_ip }}"
+        ansible_ssh_common_args: "-J root@{{ gno_sentry_ip }}"
+      when:
+        - inventory_hostname == "gno-validator"
+        - gno_network_mode == "private"
+
+    - name: Set SSH connection for validator (public network mode)
+      ansible.builtin.set_fact:
+        ansible_host: "{{ gno_validator_public_ip }}"
+        ansible_ssh_common_args: ""
+      when:
+        - inventory_hostname == "gno-validator"
+        - gno_network_mode == "public"
+
+  tasks:
+    - name: Create backup scripts directory
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Create backup log storage directory
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/backup"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    # --- Sentry: log rotation ------------------------------------------------
+    - name: Copy rotate.sh to sentry
+      ansible.builtin.copy:
+        src: ../validator/rotate.sh
+        dest: "{{ backup_dir }}/rotate.sh"
+        mode: "0755"
+        owner: root
+        group: root
+      when: inventory_hostname == "gno-sentry"
+
+    - name: Schedule log rotation cron on sentry (daily at 00:10)
+      ansible.builtin.cron:
+        name: "Rotate backup logs"
+        minute: "10"
+        hour: "0"
+        job: "bash {{ backup_dir }}/rotate.sh >> {{ backup_dir }}/rotate_cron.log 2>&1"
+        user: root
+      when: inventory_hostname == "gno-sentry"
+
+    # --- Validator: log backup -----------------------------------------------
+    - name: Copy backup.sh to validator
+      ansible.builtin.copy:
+        src: ../validator/backup.sh
+        dest: "{{ backup_dir }}/backup.sh"
+        mode: "0755"
+        owner: root
+        group: root
+      when: inventory_hostname == "gno-validator"
+
+    - name: Schedule log backup cron on validator (daily at 00:10)
+      ansible.builtin.cron:
+        name: "Backup validator logs"
+        minute: "10"
+        hour: "0"
+        job: "bash {{ backup_dir }}/backup.sh >> {{ backup_dir }}/backup_cron.log 2>&1"
+        user: root
+      when: inventory_hostname == "gno-validator"

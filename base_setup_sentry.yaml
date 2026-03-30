@@ -1,0 +1,59 @@
+---
+# =============================================================================
+# Base system setup for a Gnoland sentry node
+#
+# Installs: base packages, Docker, UFW firewall, Node Exporter, gnoland binary
+# Then configures the private VLAN interface and NGINX reverse proxy.
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml deployment/base_setup_sentry.yaml \
+#     -e target=gno-sentry
+#
+# Variables:
+#   target          - inventory host or group to target (required)
+#   vlan_id         - VLAN ID for the private network interface (default: 1938)
+#   gno_dir         - gnoland working directory under /root (default: gnoland1)
+# =============================================================================
+
+- name: Base system setup — Gnoland sentry
+  hosts: "{{ target | default('gno-sentry') }}"
+  become: false
+
+  vars:
+    vlan_id: 1938
+    gno_dir: gnoland1
+
+  roles:
+    - base_setup
+    - node_exporter
+    - docker
+    - ufw
+    - gnoland
+    - nginx
+
+  tasks:
+    - name: Configure /etc/network/interfaces with private VLAN
+      ansible.builtin.copy:
+        dest: /etc/network/interfaces
+        mode: "0644"
+        content: |
+          # Loopback
+          auto lo
+          iface lo inet loopback
+
+          # Public WAN interface
+          auto eno1
+          iface eno1 inet dhcp
+
+          # Private VLAN interface
+          auto eno1.{{ vlan_id }}
+          iface eno1.{{ vlan_id }} inet static
+              address {{ hostvars[inventory_hostname]['private_ip'] }}
+              netmask 255.255.252.0
+      when: private_ip is defined
+
+    - name: Create gnoland working directory
+      ansible.builtin.file:
+        path: /root/{{ gno_dir }}
+        state: directory
+        mode: "0750"

@@ -1,0 +1,34 @@
+---
+# tasks file for roles/ufw
+- name: STOP UFW 
+  shell: |
+    ufw disable 
+
+- name: Reset UFW (clear all rules)
+  ufw:
+    state: reset
+
+- name: Autorize SSH
+  ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+
+- name: Allow required ports per host
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ ufw_ports_app}}"
+
+- name: Allow ports from monitoring server
+  ufw:
+    rule: allow
+    from_ip: "{{ ufw_allow_ip }}"
+    to_port: "{{ item }}"
+    proto: tcp
+  loop: "{{ ufw_ports_moni}}"
+
+- name: Enable UFW
+  ufw:
+    state: enabled

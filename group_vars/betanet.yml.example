@@ -1,0 +1,202 @@
+---
+# =============================================================================
+# gno-validator-tools — betanet group vars
+# Copy to group_vars/betanet.yml and fill in your values.
+# Add group_vars/betanet.yml to .gitignore — it will contain real IPs and
+# possibly sensitive paths that should not be committed.
+#
+# Usage:
+#   cp deployment/group_vars/betanet.yml.example deployment/group_vars/betanet.yml
+#   # Edit betanet.yml with your values
+#   ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml
+# =============================================================================
+
+
+# =============================================================================
+# DEPLOYMENT BEHAVIOUR
+# =============================================================================
+
+# Generate new gnoland secrets (node key + validator key).
+# WARNING: Setting this to true will RESET the validator identity. Any existing
+# on-chain validator registration will become invalid.
+# - Set to true only for the very first deployment or a deliberate key rotation.
+# - Set back to false immediately after the first successful run so that
+#   subsequent re-runs never accidentally overwrite existing keys.
+gno_secrets_init: false
+
+# Enable the sentry node architecture.
+# - true  → Play 1 runs (sentry setup) and the validator connects only to the
+#            sentry. The validator is hidden behind the sentry and never exposed
+#            to the public P2P network directly.
+# - false → Play 1 is skipped entirely. The validator runs in standalone mode,
+#            connects directly to peers, and PEX is enabled.
+gno_use_sentry: true
+
+# Network connectivity mode for the validator host.
+# - "private" → The validator is on a private VLAN and unreachable from the
+#               internet. Ansible reaches it via an SSH jump through the sentry.
+#               Requires gno_validator_private_ip and gno_sentry_ip.
+# - "public"  → The validator has a public IP and is reachable directly over
+#               SSH. Requires gno_validator_public_ip.
+gno_network_mode: private
+
+# Whether the validator machine has outbound internet access.
+# - false → Airgapped mode. Docker images are pulled on the Ansible controller
+#           (localhost), saved to tar archives, copied to the validator, and
+#           loaded there. This is the safe default for a hardened validator.
+# - true  → The validator pulls Docker images directly from the registry.
+#           Only use this if the validator is allowed to reach the internet.
+gno_validator_has_internet: false
+
+
+# =============================================================================
+# NETWORK ADDRESSES
+# =============================================================================
+
+# Private IP of the validator (VLAN address).
+# Required when gno_network_mode == "private".
+# This IP is used both as the SSH target (via jump host) and as the P2P address
+# advertised to the sentry node.
+# Example: "172.16.12.2"
+gno_validator_private_ip: ""
+
+# Public IP of the validator.
+# Required when gno_network_mode == "public".
+# This IP is used as the direct SSH target and as the P2P address registered
+# in the network.
+# Example: "51.159.14.235"
+gno_validator_public_ip: ""
+
+# Public IP of the sentry node.
+# Used as the SSH jump host when gno_network_mode == "private".
+# Also the address Ansible connects to for Play 1 (the sentry play).
+# Example: "51.159.14.234"
+gno_sentry_ip: ""
+
+# Additional persistent peers for standalone mode (gno_use_sentry: false).
+# Comma-separated list of peer addresses in the format:
+#   <node_id>@<ip>:<port>,<node_id>@<ip>:<port>
+# Leave empty to rely solely on seeds and PEX.
+# This variable is ignored when gno_use_sentry is true — the validator's
+# persistent_peers is set automatically from the sentry's node ID.
+# Example: "abc123@1.2.3.4:26656,def456@5.6.7.8:26656"
+gno_extra_persistent_peers: ""
+
+
+# =============================================================================
+# DIRECTORY AND IMAGE NAMES
+# =============================================================================
+
+# Base directory name used on the remote hosts (under /root/).
+# A directory /root/<gno_dir> is created on both the sentry and the validator.
+# Also used as the local staging directory for downloaded files and image tars
+# (relative to the playbook: ../<gno_dir>/).
+gno_dir: gnoland1
+
+# Docker image for the gnoland node (used for both sentry and validator).
+gno_image: ghcr.io/gnolang/gno/gnoland:chain-gnoland1
+
+# Docker image for the OpenTelemetry collector (used on the validator only).
+otel_image: otel/opentelemetry-collector-contrib:latest
+
+
+# =============================================================================
+# NODE IDENTITY
+# =============================================================================
+
+# Moniker displayed in the network for the validator node.
+# Keep it unique and recognisable for your organisation.
+moniker_validator: samourai-crew-1
+
+# Moniker displayed in the network for the sentry node.
+moniker_sentry: samourai-dev-sentry-1
+
+# Whether the validator enables Peer Exchange (PEX).
+# "False" is correct for a validator behind a sentry — it prevents the
+# validator from discovering or being discovered by arbitrary peers.
+# This value is passed directly into the container environment as a string.
+# When using the standalone template, PEX is always forced to "True".
+pex_validator: "False"
+
+
+# =============================================================================
+# SENTRY P2P CONFIGURATION
+# =============================================================================
+
+# Comma-separated seed node addresses for the sentry.
+# Seeds bootstrap P2P peer discovery. Leave empty to rely on persistent_peers.
+# Format: "<node_id>@<ip>:<port>"
+# Example: "abc123@seed1.gno.land:26656"
+seeds: ""
+
+# Comma-separated persistent peers for the sentry node.
+# These are nodes the sentry will always try to maintain a connection to,
+# independently of PEX. Typically includes other well-known sentry or
+# relay nodes operated by the network.
+# Format: "<node_id>@<ip>:<port>"
+persistent_peers_sentry: ""
+
+
+# =============================================================================
+# GENESIS AND CONFIG DOWNLOAD URLS
+# =============================================================================
+
+# URL of the genesis.json file for this network.
+# The file is downloaded once to the Ansible controller (localhost) and then
+# copied to both the sentry and the validator.
+genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/gnoland1/genesis.json"
+
+# URL of the config.toml file for this network.
+# The file is downloaded once to the Ansible controller (localhost) and then
+# copied to both the sentry and the validator.
+config_url: "https://raw.githubusercontent.com/moul/gno/refs/heads/betanet-examples/misc/deployments/gnoland1/config.toml"
+
+
+# =============================================================================
+# LOG SHIPPING (PROMTAIL)
+# =============================================================================
+
+# Sentry private VLAN IP — used by Promtail in sentry relay mode to push logs.
+# Must match the private_ip of your sentry node in inventory.yaml.
+sentry_private_ip: ""
+# Example: sentry_private_ip: "172.16.12.4"
+
+# Job label used to tag logs from this validator in Loki/Grafana.
+# Defaults to moniker_validator if not set.
+promtail_job_name: "{{ moniker_validator }}"
+
+# Loki domain — used in direct mode (deploy-promtail-direct.yaml) only.
+# Must match loki_domain in group_vars/monitoring.yml.
+loki_domain: ""
+# Example: loki_domain: "mirador.example.com"
+
+# Bearer token — used in direct mode only.
+# In sentry relay mode, the sentry injects the token; validators do not need it.
+# Encrypt with: ansible-vault encrypt_string 'your-token' --name 'loki_bearer_token'
+loki_bearer_token: ""
+
+
+# =============================================================================
+# EXAMPLES
+# =============================================================================
+
+# --- Private network mode (validator on VLAN, SSH jump through sentry) -------
+#
+# gno_network_mode: private
+# gno_use_sentry: true
+# gno_validator_has_internet: false
+# gno_validator_private_ip: "172.16.12.2"
+# gno_sentry_ip: "51.159.14.234"
+# gno_validator_public_ip: ""       # not used in private mode
+# gno_extra_persistent_peers: ""    # not used when gno_use_sentry is true
+
+
+# --- Public network mode (validator directly reachable, no sentry) -----------
+#
+# gno_network_mode: public
+# gno_use_sentry: false
+# gno_validator_has_internet: true
+# gno_validator_public_ip: "51.159.14.235"
+# gno_sentry_ip: ""                 # not used in public mode
+# gno_validator_private_ip: ""      # not used in public mode
+# gno_extra_persistent_peers: "abc123@1.2.3.4:26656,def456@5.6.7.8:26656"

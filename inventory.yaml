@@ -1,0 +1,77 @@
+---
+# =============================================================================
+# Ansible inventory — gno-validator-tools
+# Replace all placeholder IPs with your actual server IPs before use.
+# =============================================================================
+
+# --- Test validators (standalone, public IP) ----------------------------------
+validators:
+  hosts:
+    test4:
+      ansible_host: 51.x.x.x
+    test5:
+      ansible_host: 51.x.x.x
+    test6:
+      ansible_host: 51.x.x.x
+  vars:
+    ansible_user: root
+
+# --- Production validators ----------------------------------------------------
+gno-validator-1:
+  hosts:
+    gno-validator-1:
+      public_ip: 51.x.x.x
+      private_ip: 172.16.x.x
+      ufw_port_moni: [9100, 26656, 9464]
+      ufw_allow_ip: 172.16.x.x       # monitoring server or sentry IP
+
+gno-validator-2:
+  hosts:
+    gno-validator-2:
+      public_ip: 51.x.x.x
+      private_ip: 172.16.x.x
+      ufw_port_moni: [9100, 26656, 9464]
+      ufw_allow_ip: 172.16.x.x
+
+# --- Sentry node --------------------------------------------------------------
+gno-sentry:
+  hosts:
+    gno-sentry:
+      ansible_host: 51.x.x.x         # public IP
+      private_ip: 172.16.x.x
+      ufw_port_moni: [9100, 9200, 9464]
+      ufw_ports_app: [26656]
+      ufw_allow_ip: 51.x.x.x         # monitoring server IP
+  vars:
+    ansible_user: root
+
+# --- Betanet group (validator + sentry — used by upload-betanet-deployment) ---
+betanet:
+  hosts:
+    gno-sentry:
+      ansible_host: 51.x.x.x         # public IP
+      private_ip: 172.16.x.x
+    gno-validator:
+      ansible_host: 172.16.x.x       # private VLAN IP (overridden by pre_tasks)
+      public_ip: 51.x.x.x
+      private_ip: 172.16.x.x
+  vars:
+    ansible_user: root
+
+# --- Monitoring server --------------------------------------------------------
+monitoring:
+  hosts:
+    monitoring-server:
+      ansible_host: 51.x.x.x         # public IP of your monitoring server
+  vars:
+    ansible_user: root
+
+# --- Local dev / Vagrant ------------------------------------------------------
+vagrant:
+  hosts:
+    vagrant:
+      ansible_host: 127.0.0.1
+      ansible_port: 2222
+      ansible_private_key_file: ./../vagrant/.vagrant/machines/default/virtualbox/private_key
+  vars:
+    ansible_user: root

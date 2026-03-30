@@ -1,0 +1,62 @@
+---
+# tasks file for generate_cert_tls
+- name: Ensure nginx & certbot installed
+  apt:
+    name:
+      - nginx
+      - certbot
+      - python3-certbot-nginx
+    state: present
+    update_cache: yes
+
+- name: Remove default site if present
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Install temporary HTTP vhost for {{ domain_name }}
+  template:
+    src: nginx_http_tmp.conf.j2
+    dest: "/etc/nginx/sites-available/{{ domain_name }}-http"
+    mode: '0644'
+
+
+- name: Enable temporary HTTP vhost
+  file:
+    src: "/etc/nginx/sites-available/{{ domain_name }}-http"
+    dest: "/etc/nginx/sites-enabled/{{ domain_name }}-http"
+    state: link
+    force: true
+
+
+- name: Test nginx config
+  command: nginx -t
+  changed_when: false
+
+- name: Restart  NGINX
+  service:
+      name: nginx
+      state: restarted
+      enabled: true
+
+- name: Obtain/renew certificate with nginx authenticator (no install)
+  command: >
+    certbot certonly --nginx
+    -d {{ domain_name }}
+    --agree-tos -m  admin@samourai.coop 
+    --non-interactive
+
+- name: Disable temporary HTTP vhost
+  shell: 
+    rm  /etc/nginx/sites-enabled/{{ domain_name }}-http
+    rm  /etc/nginx/sites-available/{{ domain_name }}-http  
+
+- name: Final nginx test
+  command: nginx -t
+  changed_when: false
+
+- name: Restart  NGINX
+  service:
+      name: nginx
+      state: restarted
+      enabled: true

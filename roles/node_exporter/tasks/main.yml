@@ -1,0 +1,55 @@
+---
+# tasks file for roles/node_exporter
+- name: download node exporter 
+  get_url:
+    url: https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz
+    dest: /opt/node_exporter.tar.gz
+
+- name: Extract node_exporter
+  unarchive:
+    src: /opt/node_exporter.tar.gz
+    dest: /opt/
+    remote_src: yes
+
+- name: Rename directory node_exporter
+  command: mv /opt/node_exporter-1.9.1.linux-amd64 /opt/node_exporter
+  args:
+    removes: /opt/node_exporter-1.9.1.linux-amd64
+
+- name: Delete tar.gz
+  file:
+    path: /opt/node_exporter.tar.gz
+    state: absent
+
+- name: Create user exporter
+  user:
+    name: exporter
+    shell: /bin/bash
+    create_home: no
+    state: present
+
+- name: Chown  /opt/node_exporter
+  file:
+    path: /opt/node_exporter
+    owner: exporter
+    group: exporter
+    recurse: yes
+
+- name: Copy file for systemd node_exporter
+  copy:
+    src: node_exporter.service
+    dest: /etc/systemd/system/node_exporter.service
+
+- name: Daemone-reload
+  command: systemctl daemon-reload
+  become: true
+
+- name: Activate systenmd node_exporter
+  systemd:
+    name: node_exporter
+    enabled: true
+
+- name: Starting node_exporter
+  systemd:
+    name: node_exporter
+    state: started

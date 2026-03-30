@@ -1,0 +1,35 @@
+---
+# tasks file for roles/docker
+- name: APT Update
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install the prerequisite package
+  apt:
+    name: "{{ docker_packages }}"
+    state: present
+
+- name: add repos
+  shell: |
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+- name: Update APT
+  apt:
+    update_cache: yes
+
+- name: Installer Docker Engine, CLI and containerd
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present

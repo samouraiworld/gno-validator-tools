@@ -1,0 +1,17 @@
+    packages:
+      - htop
+      - curl
+      - ufw
+      - jq
+      - net-tools
+      - sudo 
+      - wget
+      - unzip 
+      - git
+      - yq
+      - certbot
+      - sudo 
+      - sqlite3
+      - rclone
+      - awscli
+# defaults file for roles/base_setup

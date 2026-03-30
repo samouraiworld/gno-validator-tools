@@ -1,0 +1,29 @@
+services:
+  validator:
+    image: "{{ gno_image }}"
+    restart: on-failure
+    ports:
+      - 26656:26656
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "{{ moniker_validator }}"
+      PERSISTENT_PEERS: "{{ persistent_peers | default('') }}"
+      PEX: "{{ pex_validator }}"
+      MAX_PEERS: 1
+      INBOUND: 0
+
+  otel-collector:
+    image: "{{ otel_image }}"
+    restart: on-failure
+    container_name: otel-collector
+    volumes:
+      - ./otel/otel-config.yaml:/etc/otel/config.yaml
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - 9464:9464
+      - 127.0.0.1:4317:4317

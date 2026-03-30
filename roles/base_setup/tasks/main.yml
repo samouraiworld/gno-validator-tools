@@ -1,0 +1,45 @@
+---
+# tasks file for roles/base_setup
+- name: update
+  apt:
+   update_cache: yes
+
+- name: upgrade  
+  apt:
+    upgrade: dist
+
+- name: Install paquets
+  apt:
+    name: "{{ packages }}"
+    state: present
+    update_cache: yes
+ 
+- name: export LS_OPTIONS
+  replace:
+    path: /root/.bashrc
+    regexp: '^# (export LS_OPTIONS=.*)'
+    replace: '\1'
+
+- name:  eval dircolors
+  replace:
+    path: /root/.bashrc
+    regexp: '^# (eval "\$\(.+dircolors.+\)")'
+    replace: '\1'
+
+- name:  alias ls
+  replace:
+    path: /root/.bashrc
+    regexp: '^# (alias ls=.*)'
+    replace: '\1'
+
+- name:  alias ll
+  replace:
+    path: /root/.bashrc
+    regexp: '^# (alias ll=.*)'
+    replace: '\1'
+
+- name:  alias l
+  replace:
+    path: /root/.bashrc
+    regexp: '^# (alias l=.*)'
+    replace: '\1'

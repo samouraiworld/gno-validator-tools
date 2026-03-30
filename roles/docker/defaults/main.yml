@@ -1,0 +1,7 @@
+---
+# defaults file for roles/docker
+docker_packages:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
