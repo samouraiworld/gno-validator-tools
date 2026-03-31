@@ -1,2 +1,5 @@
 ---
-# defaults file for gnoland
+# Directory where the gno source repository is cloned and compiled.
+# The gnoland binary is built here and installed to /root/go/bin/gnoland.
+# This is NOT the node runtime data directory (that is gno_dir in the deployment playbook).
+gno_build_dir: /opt/gno

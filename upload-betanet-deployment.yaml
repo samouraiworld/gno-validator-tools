@@ -19,8 +19,8 @@
   hosts: gno-sentry
   become: false
   vars:
-    gno_secrets_init: false
-    gno_use_sentry: true
+    gno_secrets_init: true
+    gno_use_sentry: false
     gno_network_mode: private
     gno_validator_has_internet: false
     gno_validator_private_ip: ""
@@ -35,10 +35,9 @@
     pex_validator: "False"
     seeds: ""
     persistent_peers_sentry: ""
+    private_peer_ids: ""
     genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/gnoland1/genesis.json"
     config_url: "https://raw.githubusercontent.com/moul/gno/refs/heads/betanet-examples/misc/deployments/gnoland1/config.toml"
-
-  when: gno_use_sentry | bool
 
   tasks:
     # --- Directory -----------------------------------------------------------
@@ -50,18 +49,17 @@
       tags: [config]
 
     # --- Secrets -------------------------------------------------------------
-    - name: "WARNING: Initialize gnoland secrets (resets node identity)"
+    - name: Check if secrets directory already exists
+      ansible.builtin.stat:
+        path: /root/{{ gno_dir }}/gnoland-data/secrets
+      register: secrets_dir_stat
+      tags: [secrets]
+
+    - name: "WARNING: Initialize gnoland secrets (first-time only)"
       ansible.builtin.command: gnoland secrets init
       args:
         chdir: /root/{{ gno_dir }}
-      when: gno_secrets_init | bool
-      tags: [secrets]
-
-    - name: Check that secrets directory already exists
-      ansible.builtin.stat:
-        path: /root/{{ gno_dir }}/secrets
-      register: secrets_dir_stat
-      when: not gno_secrets_init | bool
+      when: gno_secrets_init | bool and not secrets_dir_stat.stat.exists
       tags: [secrets]
 
     - name: Fail if secrets are missing and gno_secrets_init is false
@@ -112,7 +110,7 @@
     - name: Download genesis.json to localhost
       ansible.builtin.get_url:
         url: "{{ genesis_url }}"
-        dest: "../{{ gno_dir }}/genesis.json"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
         mode: "0644"
       delegate_to: localhost
       tags: [config]
@@ -120,7 +118,7 @@
     - name: Download config.toml to localhost
       ansible.builtin.get_url:
         url: "{{ config_url }}"
-        dest: "../{{ gno_dir }}/config.toml"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
         mode: "0644"
       delegate_to: localhost
       tags: [config]
@@ -128,21 +126,21 @@
     # --- Copy config files to sentry -----------------------------------------
     - name: Copy config.toml to sentry
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/config.toml
+        src: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
         dest: /root/{{ gno_dir }}/config.toml
         mode: "0644"
       tags: [config]
 
     - name: Copy genesis.json to sentry
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/genesis.json
+        src: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
         dest: /root/{{ gno_dir }}/genesis.json
         mode: "0644"
       tags: [config]
 
     - name: Copy entrypoint.sh to sentry
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/entrypoint.sh
+        src: "{{ playbook_dir }}/{{ gno_dir }}/entrypoint.sh"
         dest: /root/{{ gno_dir }}/entrypoint.sh
         mode: "0755"
       tags: [config]
@@ -157,14 +155,14 @@
       tags: [docker]
 
     - name: Save gno image to tar on localhost (airgapped mode)
-      ansible.builtin.command: docker save -o ../{{ gno_dir }}/gnoland.tar {{ gno_image }}
+      ansible.builtin.command: docker save -o {{ playbook_dir }}/{{ gno_dir }}/gnoland.tar {{ gno_image }}
       delegate_to: localhost
       when: not gno_validator_has_internet | bool
       tags: [docker]
 
     - name: Copy gnoland image tar to sentry (airgapped mode)
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/gnoland.tar
+        src: "{{ playbook_dir }}/{{ gno_dir }}/gnoland.tar"
         dest: /tmp/gnoland.tar
       when: not gno_validator_has_internet | bool
       tags: [docker]
@@ -195,8 +193,8 @@
   vars:
     gno_secrets_init: false
     gno_use_sentry: true
-    gno_network_mode: private
-    gno_validator_has_internet: false
+    gno_network_mode: public
+    gno_validator_has_internet: true
     gno_validator_private_ip: ""
     gno_validator_public_ip: ""
     gno_sentry_ip: ""
@@ -209,6 +207,7 @@
     pex_validator: "False"
     seeds: ""
     persistent_peers_sentry: ""
+    private_peer_ids: ""
     genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/gnoland1/genesis.json"
     config_url: "https://raw.githubusercontent.com/moul/gno/refs/heads/betanet-examples/misc/deployments/gnoland1/config.toml"
 
@@ -244,24 +243,23 @@
     # --- OTEL config ---------------------------------------------------------
     - name: Copy otel-config.yaml to validator
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/otel/otel-config.yaml
+        src: ./validator/otel/otel-config.yaml
         dest: /root/{{ gno_dir }}/otel/otel-config.yaml
         mode: "0644"
       tags: [config]
 
     # --- Secrets -------------------------------------------------------------
-    - name: "WARNING: Initialize gnoland secrets (resets node identity)"
+    - name: Check if secrets directory already exists
+      ansible.builtin.stat:
+        path: /root/{{ gno_dir }}/gnoland-data/secrets
+      register: secrets_dir_stat
+      tags: [secrets]
+
+    - name: "WARNING: Initialize gnoland secrets (first-time only)"
       ansible.builtin.command: gnoland secrets init
       args:
         chdir: /root/{{ gno_dir }}
-      when: gno_secrets_init | bool
-      tags: [secrets]
-
-    - name: Check that secrets directory already exists
-      ansible.builtin.stat:
-        path: /root/{{ gno_dir }}/secrets
-      register: secrets_dir_stat
-      when: not gno_secrets_init | bool
+      when: gno_secrets_init | bool and not secrets_dir_stat.stat.exists
       tags: [secrets]
 
     - name: Fail if secrets are missing and gno_secrets_init is false
@@ -340,7 +338,7 @@
     # --- Download config and genesis to localhost ----------------------------
     - name: Check if genesis.json already exists on localhost
       ansible.builtin.stat:
-        path: "../{{ gno_dir }}/genesis.json"
+        path: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
       register: genesis_stat
       delegate_to: localhost
       tags: [config]
@@ -348,7 +346,7 @@
     - name: Download genesis.json to localhost
       ansible.builtin.get_url:
         url: "{{ genesis_url }}"
-        dest: "../{{ gno_dir }}/genesis.json"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
         mode: "0644"
       delegate_to: localhost
       when: not genesis_stat.stat.exists
@@ -356,7 +354,7 @@
 
     - name: Check if config.toml already exists on localhost
       ansible.builtin.stat:
-        path: "../{{ gno_dir }}/config.toml"
+        path: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
       register: config_stat
       delegate_to: localhost
       tags: [config]
@@ -364,7 +362,7 @@
     - name: Download config.toml to localhost
       ansible.builtin.get_url:
         url: "{{ config_url }}"
-        dest: "../{{ gno_dir }}/config.toml"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
         mode: "0644"
       delegate_to: localhost
       when: not config_stat.stat.exists
@@ -373,21 +371,21 @@
     # --- Copy config files to validator --------------------------------------
     - name: Copy config.toml to validator
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/config.toml
+        src: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
         dest: /root/{{ gno_dir }}/config.toml
         mode: "0644"
       tags: [config]
 
     - name: Copy genesis.json to validator
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/genesis.json
+        src: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
         dest: /root/{{ gno_dir }}/genesis.json
         mode: "0644"
       tags: [config]
 
     - name: Copy entrypoint.sh to validator
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/entrypoint.sh
+        src: "{{ playbook_dir }}/{{ gno_dir }}/entrypoint.sh"
         dest: /root/{{ gno_dir }}/entrypoint.sh
         mode: "0755"
       tags: [config]
@@ -403,7 +401,7 @@
       tags: [docker]
 
     - name: Save images to tar on localhost (airgapped mode)
-      ansible.builtin.command: docker save -o ../{{ gno_dir }}/{{ item.name }}.tar {{ item.image }}
+      ansible.builtin.command: docker save -o {{ playbook_dir }}/{{ gno_dir }}/{{ item.name }}.tar {{ item.image }}
       loop:
         - { name: gnoland, image: "{{ gno_image }}" }
         - { name: otel, image: "{{ otel_image }}" }
@@ -413,7 +411,7 @@
 
     - name: Copy image tars to validator (airgapped mode)
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/{{ item }}.tar
+        src: "{{ playbook_dir }}/{{ gno_dir }}/{{ item }}.tar"
         dest: /tmp/{{ item }}.tar
       loop:
         - gnoland

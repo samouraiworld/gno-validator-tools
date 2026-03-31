@@ -14,4 +14,4 @@ services:
       MONIKER: "{{ moniker_sentry }}"
       SEEDS: "{{ seeds | default('') }}"
       PERSISTENT_PEERS: "{{ persistent_peers_sentry | default('') }}"
-      PRIVATE_PEER_IDS: "{{ hostvars['gno-validator'].validator_node_id }}"
+      PRIVATE_PEER_IDS: "{{ private_peer_ids | default(hostvars['gno-validator'].validator_node_id | default('')) }}"

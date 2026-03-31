@@ -1,0 +1,52 @@
+all:
+  vars:
+    ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+    # UFW — monitoring IP (Vagrant monitoring VM)
+    ufw_allow_ip: "192.168.56.12"
+    # Ports restreints au monitoring (node_exporter, nginx_exporter, otel)
+    ufw_ports_moni: [9100, 9113, 9464]
+
+  children:
+    validators:
+      hosts:
+        gno-validator-test:
+          ansible_host: 192.168.56.10
+          public_ip: 192.168.56.10
+          private_ip: 192.168.56.10
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/validator/virtualbox/private_key
+          ufw_ports_app: [26656, 26657]
+        # Alias requis par upload-betanet-deployment.yaml (hosts: gno-validator)
+        gno-validator:
+          ansible_host: 192.168.56.10
+          public_ip: 192.168.56.10
+          private_ip: 192.168.56.10
+          gno_validator_public_ip: 192.168.56.10
+          gno_validator_private_ip: 192.168.56.10
+          gno_network_mode: public
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/validator/virtualbox/private_key
+          ufw_ports_app: [26656, 26657]
+
+    sentries:
+      hosts:
+        gno-sentry-test:
+          ansible_host: 192.168.56.11
+          public_ip: 192.168.56.11
+          private_ip: 192.168.56.11
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
+          ufw_ports_app: [26656]
+        # Alias requis par upload-betanet-deployment.yaml (hosts: gno-sentry)
+        gno-sentry:
+          ansible_host: 192.168.56.11
+          public_ip: 192.168.56.11
+          private_ip: 192.168.56.11
+          gno_sentry_ip: 192.168.56.11
+          gno_network_mode: public
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
+          ufw_ports_app: [26656]
+
+    monitoring_servers:
+      hosts:
+        gno-monitoring-test:
+          ansible_host: 192.168.56.12
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/monitoring/virtualbox/private_key

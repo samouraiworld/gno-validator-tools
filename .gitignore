@@ -23,3 +23,7 @@ vagrant/.vagrant/
 # Ansible retry files
 # =============================================================================
 *.retry
+**genesis.json
+inventory.yaml
+vagrant-test-plan.md
+review-2026-03-31.md

@@ -1,46 +1,45 @@
 ---
 # tasks file for roles/nginx
-    - name: Install apt 
-      apt:
-        name:
-          - nginx
-          - certbot
-          - python3-certbot-nginx
-        update_cache: yes
-        state: present
-        
 
-    - name: delete default config NGINX 
-      file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
+- name: Install NGINX and certbot packages
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - certbot
+      - python3-certbot-nginx
+    update_cache: true
+    state: present
 
+- name: Remove default NGINX site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
 
-    - name: Create config nginx for reverse proxy 
-      template:
-        # src: nginx_site.conf.j2
-        src: "{{ item.template | default('nginx_site.conf.j2') }}"
-        dest: "/etc/nginx/sites-available/{{ item.domain_name }}"
-        mode: '0644'
-      loop: "{{ nginx_sites }}"
+- name: Deploy NGINX vhost configs
+  ansible.builtin.template:
+    src: "{{ item.template | default('nginx_site.conf.j2') }}"
+    dest: "/etc/nginx/sites-available/{{ item.domain_name }}"
+    mode: "0644"
+  loop: "{{ nginx_sites }}"
+  when: nginx_sites is defined and nginx_sites | length > 0
 
-    - name: Activate 
-      file:
-        src: "/etc/nginx/sites-available/{{ item.domain_name }}"
-        dest: "/etc/nginx/sites-enabled/{{ item.domain_name }}"
-        state: link
-        force: true
-      loop: "{{ nginx_sites }}"
+- name: Enable NGINX vhosts
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item.domain_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ item.domain_name }}"
+    state: link
+    force: true
+  loop: "{{ nginx_sites }}"
+  when: nginx_sites is defined and nginx_sites | length > 0
 
-    - name: check conf NGINX
-      command: nginx -t
-      register: nginx_test
-      failed_when: nginx_test.rc != 0
+- name: Validate NGINX configuration
+  ansible.builtin.command: nginx -t
+  register: nginx_test
+  changed_when: false
+  failed_when: nginx_test.rc != 0
 
-    - name: Restart  NGINX
-      service:
-        name: nginx
-        state: restarted
-        enabled: true
-
-
+- name: Restart NGINX
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+    enabled: true

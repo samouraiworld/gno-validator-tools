@@ -22,6 +22,7 @@
   vars:
     vlan_id: 1938
     gno_dir: gnoland1
+    gno_build_dir: /opt/gno
 
   roles:
     - base_setup

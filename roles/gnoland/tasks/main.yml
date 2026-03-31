@@ -27,21 +27,21 @@
 - name:  git clone
   git:
     repo: "https://github.com/gnolang/gno.git"
-    dest:  "{{ gno_dir }}"
+    dest:  "{{ gno_build_dir }}"
     update: yes
 
 
 - name: Make install.gnoland
   command:  make -C gno.land install.gnoland 
   args:
-    chdir: "{{ gno_dir }}"
+    chdir: "{{ gno_build_dir }}"
   environment:
     PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
 
 - name: Make install.gnoland gogenesis
   command:  make -C contribs/gnogenesis install
   args:
-    chdir: "{{ gno_dir }}"
+    chdir: "{{ gno_build_dir }}"
   environment:
     PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin"
 

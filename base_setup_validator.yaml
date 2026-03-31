@@ -84,6 +84,6 @@
 
     - name: Copy otel-config.yaml
       ansible.builtin.copy:
-        src: ../{{ gno_dir }}/otel/otel-config.yaml
+        src: ./validator/otel/otel-config.yaml
         dest: /root/{{ gno_dir }}/otel/otel-config.yaml
         mode: "0644"

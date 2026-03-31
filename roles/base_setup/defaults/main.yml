@@ -1,17 +1,19 @@
-    packages:
-      - htop
-      - curl
-      - ufw
-      - jq
-      - net-tools
-      - sudo 
-      - wget
-      - unzip 
-      - git
-      - yq
-      - certbot
-      - sudo 
-      - sqlite3
-      - rclone
-      - awscli
+packages:
+  - htop
+  - curl
+  - ufw
+  - jq
+  - net-tools
+  - sudo
+  - wget
+  - unzip
+  - git
+  - yq
+  - certbot
+  - sudo
+  - sqlite3
+  - rclone
+  - awscli
+  - make
+  - bat
 # defaults file for roles/base_setup
