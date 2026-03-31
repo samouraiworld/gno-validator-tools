@@ -6,9 +6,9 @@
 # possibly sensitive paths that should not be committed.
 #
 # Usage:
-#   cp deployment/group_vars/betanet.yml.example deployment/group_vars/betanet.yml
+#   cp group_vars/betanet.yml.example group_vars/betanet.yml
 #   # Edit betanet.yml with your values
-#   ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml
+#   ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml
 # =============================================================================
 
 

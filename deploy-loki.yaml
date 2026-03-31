@@ -17,16 +17,16 @@
 #     ansible-vault encrypt_string 'your-token' --name 'loki_bearer_token'
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml
-#   ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml --tags loki
-#   ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml --tags proxy
+#   ansible-playbook -i inventory.yaml deploy-loki.yaml
+#   ansible-playbook -i inventory.yaml deploy-loki.yaml --tags loki -e target=vagrant
+#   ansible-playbook -i inventory.yaml deploy-loki.yaml --tags proxy -e target=vagrant
 # =============================================================================
 
 # ---------------------------------------------------------------------------
 # PLAY 1 — Loki on monitoring server
 # ---------------------------------------------------------------------------
 - name: Deploy Loki on monitoring server
-  hosts: monitoring
+  hosts: "{{ target | default('monitoring') }}"
   become: false
 
   handlers:
@@ -67,18 +67,11 @@
       tags: [loki]
 
     # --- Binary install -------------------------------------------------------
-    - name: Check if Loki binary already installed
-      ansible.builtin.stat:
-        path: /opt/loki/loki
-      register: loki_binary_stat
-      tags: [loki]
-
-    - name: Download Loki binary archive
-      ansible.builtin.get_url:
-        url: "https://github.com/grafana/loki/releases/download/v{{ loki_version }}/loki-linux-amd64.zip"
-        dest: /tmp/loki-linux-amd64.zip
-        mode: "0644"
-      when: not loki_binary_stat.stat.exists
+    - name: Check installed Loki version
+      ansible.builtin.command: /opt/loki/loki --version
+      register: loki_installed_version
+      changed_when: false
+      failed_when: false
       tags: [loki]
 
     - name: Install unzip
@@ -86,7 +79,16 @@
         name: unzip
         state: present
         update_cache: false
-      when: not loki_binary_stat.stat.exists
+      when: loki_installed_version.rc != 0 or loki_version not in loki_installed_version.stdout
+      tags: [loki]
+
+    - name: Download Loki binary archive
+      ansible.builtin.get_url:
+        url: "https://github.com/grafana/loki/releases/download/v{{ loki_version }}/loki-linux-amd64.zip"
+        dest: /tmp/loki-linux-amd64.zip
+        mode: "0644"
+        force: true
+      when: loki_installed_version.rc != 0 or loki_version not in loki_installed_version.stdout
       tags: [loki]
 
     - name: Extract Loki binary
@@ -96,13 +98,13 @@
         remote_src: true
         include:
           - loki-linux-amd64
-      when: not loki_binary_stat.stat.exists
+      when: loki_installed_version.rc != 0 or loki_version not in loki_installed_version.stdout
       tags: [loki]
 
-    - name: Rename Loki binary
+    - name: Install Loki binary
       ansible.builtin.command:
         cmd: mv /opt/loki/loki-linux-amd64 /opt/loki/loki
-        creates: /opt/loki/loki
+      when: loki_installed_version.rc != 0 or loki_version not in loki_installed_version.stdout
       tags: [loki]
 
     - name: Set Loki binary permissions
@@ -225,7 +227,6 @@
     - name: Force NGINX reload with TLS vhost
       ansible.builtin.meta: flush_handlers
       tags: [loki, tls]
-
 
 # ---------------------------------------------------------------------------
 # PLAY 2 — loki-proxy relay on sentry

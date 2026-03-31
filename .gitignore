@@ -11,13 +11,13 @@ group_vars/monitoring.yml
 *.zip
 
 
+# Runtime staging directory — genesis.json and config.toml downloaded at deploy time
 gnoland1/
-validator/
 
 # =============================================================================
 # Vagrant
 # =============================================================================
-.vagrant/
+vagrant/.vagrant/
 
 # =============================================================================
 # Ansible retry files

@@ -6,7 +6,7 @@
 # Play 2: gno-validator
 #
 # Typical run:
-#   ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml
+#   ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml
 # Limit to a single play:
 #   ansible-playbook ... --tags secrets
 #   ansible-playbook ... --tags compose
@@ -185,7 +185,6 @@
       args:
         chdir: /root/{{ gno_dir }}
       tags: [compose]
-
 
 # ---------------------------------------------------------------------------
 # PLAY 2 — Validator node

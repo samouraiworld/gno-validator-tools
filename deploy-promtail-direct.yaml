@@ -17,8 +17,8 @@
 #     ansible-vault encrypt_string 'your-token' --name 'loki_bearer_token'
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml
-#   ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml \
+#   ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml
+#   ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml \
 #     -e target=gno-validator-1
 # =============================================================================
 
@@ -58,18 +58,11 @@
       tags: [promtail]
 
     # --- Binary install -------------------------------------------------------
-    - name: Check if Promtail binary already installed
-      ansible.builtin.stat:
-        path: /opt/promtail/promtail
-      register: promtail_binary_stat
-      tags: [promtail]
-
-    - name: Download Promtail binary archive
-      ansible.builtin.get_url:
-        url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
-        dest: /tmp/promtail-linux-amd64.zip
-        mode: "0644"
-      when: not promtail_binary_stat.stat.exists
+    - name: Check installed Promtail version
+      ansible.builtin.command: /opt/promtail/promtail --version
+      register: promtail_installed_version
+      changed_when: false
+      failed_when: false
       tags: [promtail]
 
     - name: Install unzip
@@ -77,7 +70,16 @@
         name: unzip
         state: present
         update_cache: false
-      when: not promtail_binary_stat.stat.exists
+      when: promtail_installed_version.rc != 0 or promtail_version not in promtail_installed_version.stdout
+      tags: [promtail]
+
+    - name: Download Promtail binary archive
+      ansible.builtin.get_url:
+        url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
+        dest: /tmp/promtail-linux-amd64.zip
+        mode: "0644"
+        force: true
+      when: promtail_installed_version.rc != 0 or promtail_version not in promtail_installed_version.stdout
       tags: [promtail]
 
     - name: Extract Promtail binary
@@ -87,13 +89,13 @@
         remote_src: true
         include:
           - promtail-linux-amd64
-      when: not promtail_binary_stat.stat.exists
+      when: promtail_installed_version.rc != 0 or promtail_version not in promtail_installed_version.stdout
       tags: [promtail]
 
-    - name: Rename Promtail binary
+    - name: Install Promtail binary
       ansible.builtin.command:
         cmd: mv /opt/promtail/promtail-linux-amd64 /opt/promtail/promtail
-        creates: /opt/promtail/promtail
+      when: promtail_installed_version.rc != 0 or promtail_version not in promtail_installed_version.stdout
       tags: [promtail]
 
     - name: Set Promtail binary permissions

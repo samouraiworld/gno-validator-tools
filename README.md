@@ -112,8 +112,8 @@ all:
 **Copy and configure your group vars:**
 
 ```bash
-cp deployment/group_vars/betanet.yml.example    deployment/group_vars/betanet.yml
-cp deployment/group_vars/monitoring.yml.example deployment/group_vars/monitoring.yml
+cp group_vars/betanet.yml.example    group_vars/betanet.yml
+cp group_vars/monitoring.yml.example group_vars/monitoring.yml
 ```
 
 > Add both files to `.gitignore` — they will contain real IPs and secrets.
@@ -126,28 +126,28 @@ Run playbooks in this order on a fresh infrastructure:
 
 ```bash
 # Step 1 — Prepare base system on sentry and validator
-ansible-playbook -i inventory.yaml deployment/base_setup_sentry.yaml    -e target=gno-sentry
-ansible-playbook -i inventory.yaml deployment/base_setup_validator.yaml  -e target=gno-validator
+ansible-playbook -i inventory.yaml base_setup_sentry.yaml    -e target=gno-sentry
+ansible-playbook -i inventory.yaml base_setup_validator.yaml  -e target=gno-validator
 
 # Step 2 — Deploy validator and sentry nodes (first run: generate secrets)
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml \
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml \
   -e gno_secrets_init=true
 
 # Step 3 — Deploy log backup scripts (optional)
-ansible-playbook -i inventory.yaml deployment/backup_logs.sh.yaml
+ansible-playbook -i inventory.yaml backup_logs.sh.yaml
 
 # Step 4 — Deploy Loki on monitoring server + loki-proxy on sentry (optional)
-ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml
+ansible-playbook -i inventory.yaml deploy-loki.yaml
 
 # Step 5 — Deploy Promtail on validator (choose one mode)
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml  # sentry relay mode
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml  # direct mode
+ansible-playbook -i inventory.yaml deploy-promtail-sentry.yaml  # sentry relay mode
+ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml  # direct mode
 ```
 
 **Re-deploy without resetting secrets:**
 
 ```bash
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml
 # gno_secrets_init defaults to false — existing keys are preserved
 ```
 
@@ -165,8 +165,8 @@ ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml
 Both playbooks accept a `target` variable to select which host or group to configure:
 
 ```bash
-ansible-playbook -i inventory.yaml deployment/base_setup_validator.yaml -e target=gno-validator
-ansible-playbook -i inventory.yaml deployment/base_setup_sentry.yaml    -e target=gno-sentry
+ansible-playbook -i inventory.yaml base_setup_validator.yaml -e target=gno-validator
+ansible-playbook -i inventory.yaml base_setup_sentry.yaml    -e target=gno-sentry
 ```
 
 **Roles applied:**
@@ -215,22 +215,22 @@ Controlled by `gno_validator_has_internet`:
 
 ```bash
 # First deployment — private network, airgapped validator
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml \
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml \
   -e gno_secrets_init=true
 
 # Re-deploy — preserve secrets, validator has internet
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml \
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml \
   -e gno_validator_has_internet=true
 
 # Standalone validator — public IP, no sentry
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml \
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml \
   -e gno_use_sentry=false \
   -e gno_network_mode=public \
   -e gno_extra_persistent_peers="<nodeid>@<host>:26656"
 
 # Run specific steps only
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml --tags secrets
-ansible-playbook -i inventory.yaml deployment/upload-betanet-deployment.yaml --tags compose
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml --tags secrets
+ansible-playbook -i inventory.yaml upload-betanet-deployment.yaml --tags compose
 ```
 
 Available tags: `secrets`, `config`, `docker`, `compose`.
@@ -245,7 +245,7 @@ Deploys log backup and rotation scripts via cron (runs daily at 00:10):
 - **Sentry**: `rotate.sh` — enforces 30-day retention on the backup directory.
 
 ```bash
-ansible-playbook -i inventory.yaml deployment/backup_logs.sh.yaml
+ansible-playbook -i inventory.yaml backup_logs.sh.yaml
 ```
 
 Scripts are installed to `{{ backup_dir }}` (default: `/opt/backup_logs`).
@@ -273,13 +273,13 @@ Two-play playbook. Deploys the full Loki log aggregation stack.
 
 ```bash
 # Full deploy
-ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml
+ansible-playbook -i inventory.yaml deploy-loki.yaml
 
 # Loki server only
-ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml --tags loki
+ansible-playbook -i inventory.yaml deploy-loki.yaml --tags loki
 
 # loki-proxy on sentry only
-ansible-playbook -i inventory.yaml deployment/deploy-loki.yaml --tags proxy
+ansible-playbook -i inventory.yaml deploy-loki.yaml --tags proxy
 ```
 
 **Prerequisites:**
@@ -310,10 +310,10 @@ Validator → http://{{ sentry_private_ip }}/loki/api/v1/push
 - `sentry_private_ip` set in `group_vars/betanet.yml`
 
 ```bash
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml
+ansible-playbook -i inventory.yaml deploy-promtail-sentry.yaml
 
 # Target a specific validator
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-sentry.yaml \
+ansible-playbook -i inventory.yaml deploy-promtail-sentry.yaml \
   -e target=gno-validator-1
 ```
 
@@ -340,10 +340,10 @@ Validator → https://{{ loki_domain }}/loki/api/v1/push (Bearer token)
 - Validator has outbound internet access on port 443
 
 ```bash
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml
+ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml
 
 # Target a specific validator
-ansible-playbook -i inventory.yaml deployment/deploy-promtail-direct.yaml \
+ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml \
   -e target=gno-validator-1
 ```
 

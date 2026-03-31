@@ -6,7 +6,7 @@
 # Then configures the private VLAN interface and copies initial runtime files.
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deployment/base_setup_validator.yaml \
+#   ansible-playbook -i inventory.yaml base_setup_validator.yaml \
 #     -e target=gno-validator-1
 #
 # Variables:

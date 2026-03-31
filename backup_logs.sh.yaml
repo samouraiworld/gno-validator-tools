@@ -9,7 +9,7 @@
 # Both scripts are scheduled via cron at 00:10 daily.
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deployment/backup_logs.sh.yaml
+#   ansible-playbook -i inventory.yaml backup_logs.sh.yaml
 #
 # Variables:
 #   gno_network_mode         - private (default) or public

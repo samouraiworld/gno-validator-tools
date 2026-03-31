@@ -6,7 +6,7 @@
 # Then configures the private VLAN interface and NGINX reverse proxy.
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deployment/base_setup_sentry.yaml \
+#   ansible-playbook -i inventory.yaml base_setup_sentry.yaml \
 #     -e target=gno-sentry
 #
 # Variables:

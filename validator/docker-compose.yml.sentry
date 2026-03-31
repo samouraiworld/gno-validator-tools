@@ -1,0 +1,20 @@
+services:
+  sentry:
+    image: "" # image 
+    restart: on-failure
+    ports:
+      - 26656:26656
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-"
+      SEEDS: "{{ seeds }}" # ask info of gnocore_team 
+      PERSISTENT_PEERS: "{{ persistent_peers_sentry }} " # p2p_address_validator@private_ip:26656, seed@ip:26656
+      PRIVATE_PEER_IDS: "{{ hostvars['gno-validator'].id }}" # #p2p_address of validator
+
+
+
