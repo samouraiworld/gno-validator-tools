@@ -107,11 +107,26 @@
       tags: [docker]
 
     # --- Download config and genesis to localhost ----------------------------
+    - name: Check if genesis.json already exists on localhost
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+      register: sentry_genesis_stat
+      delegate_to: localhost
+      tags: [config]
+
     - name: Download genesis.json to localhost
       ansible.builtin.get_url:
         url: "{{ genesis_url }}"
         dest: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
         mode: "0644"
+      delegate_to: localhost
+      when: not sentry_genesis_stat.stat.exists
+      tags: [config]
+
+    - name: Check if config.toml already exists on localhost
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+      register: sentry_config_stat
       delegate_to: localhost
       tags: [config]
 
@@ -121,6 +136,7 @@
         dest: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
         mode: "0644"
       delegate_to: localhost
+      when: not sentry_config_stat.stat.exists
       tags: [config]
 
     # --- Copy config files to sentry -----------------------------------------
