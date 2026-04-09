@@ -1,0 +1,143 @@
+---
+# =============================================================================
+# Install sentry node
+#
+# Prérequis : gnoland secrets init a été exécuté manuellement sur le sentry.
+# ansible-playbook -i inventory.yaml install-sentry-node.yml
+#
+# Tags disponibles :
+#   [config]   — répertoire, fichiers de config, génèse
+#   [docker]   — images Docker (pull / save / load)
+#   [compose]  — démarrage du stack via docker compose
+# =============================================================================
+
+- name: Install sentry node
+  hosts: gno-sentry
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+    gno_image: ghcr.io/gnolang/gno/gnoland:chain-gnoland1
+    otel_image: otel/opentelemetry-collector-contrib:latest
+    moniker_validator: samourai-crew-1
+    moniker_sentry: samourai-dev-sentry-1
+    pex_validator: "False"
+    seeds: ""
+    persistent_peers_sentry: ""
+    private_peer_ids: ""
+    genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/gnoland1/genesis.json"
+    config_url: "https://raw.githubusercontent.com/moul/gno/refs/heads/betanet-examples/misc/deployments/gnoland1/config.toml"
+    gno_validator_has_internet: true
+
+  tasks:
+
+    # --- Répertoire de travail ------------------------------------------------
+    - name: Create gnoland working directory on sentry
+      ansible.builtin.file:
+        path: /root/{{ gno_dir }}
+        state: directory
+        mode: "0750"
+      tags: [config]
+
+    # --- Téléchargement de genesis.json en local ------------------------------
+    - name: Check if genesis.json already exists on localhost
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+      register: sentry_genesis_stat
+      delegate_to: localhost
+      tags: [config]
+
+    - name: Download genesis.json to localhost
+      ansible.builtin.get_url:
+        url: "{{ genesis_url }}"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        mode: "0644"
+      delegate_to: localhost
+      when: not sentry_genesis_stat.stat.exists
+      tags: [config]
+
+    # --- Téléchargement de config.toml en local -------------------------------
+    - name: Check if config.toml already exists on localhost
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+      register: sentry_config_stat
+      delegate_to: localhost
+      tags: [config]
+
+    - name: Download config.toml to localhost
+      ansible.builtin.get_url:
+        url: "{{ config_url }}"
+        dest: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        mode: "0644"
+      delegate_to: localhost
+      when: not sentry_config_stat.stat.exists
+      tags: [config]
+
+    # --- Copie des fichiers de configuration vers le sentry ------------------
+    - name: Copy config.toml to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        dest: /root/{{ gno_dir }}/config.toml
+        mode: "0644"
+      tags: [config]
+
+    - name: Copy genesis.json to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        dest: /root/{{ gno_dir }}/genesis.json
+        mode: "0644"
+      tags: [config]
+
+    - name: Copy entrypoint.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/{{ gno_dir }}/entrypoint.sh"
+        dest: /root/{{ gno_dir }}/entrypoint.sh
+        mode: "0755"
+      tags: [config]
+
+    # --- Génération du docker-compose.yml ------------------------------------
+    - name: Render docker-sentry.yml.j2 to docker-compose.yml on sentry
+      ansible.builtin.template:
+        src: templates/docker-sentry.yml.j2
+        dest: /root/{{ gno_dir }}/docker-compose.yml
+        mode: "0640"
+      tags: [config]
+
+    # --- Gestion de l'image Docker (mode airgapped) --------------------------
+    - name: Pull gno image on localhost (airgapped mode)
+      ansible.builtin.command: docker pull {{ gno_image }}
+      delegate_to: localhost
+      when: not gno_validator_has_internet | bool
+      tags: [docker]
+
+    - name: Save gno image to tar on localhost (airgapped mode)
+      ansible.builtin.command: >
+        docker save -o {{ playbook_dir }}/{{ gno_dir }}/gnoland.tar {{ gno_image }}
+      delegate_to: localhost
+      when: not gno_validator_has_internet | bool
+      tags: [docker]
+
+    - name: Copy gnoland image tar to sentry (airgapped mode)
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/{{ gno_dir }}/gnoland.tar"
+        dest: /tmp/gnoland.tar
+      when: not gno_validator_has_internet | bool
+      tags: [docker]
+
+    - name: Load gnoland image on sentry (airgapped mode)
+      ansible.builtin.command: docker load -i /tmp/gnoland.tar
+      when: not gno_validator_has_internet | bool
+      tags: [docker]
+
+    # --- Gestion de l'image Docker (mode internet) ---------------------------
+    - name: Pull gno image directly on sentry (internet mode)
+      ansible.builtin.command: docker pull {{ gno_image }}
+      when: gno_validator_has_internet | bool
+      tags: [docker]
+
+    # --- Démarrage du stack --------------------------------------------------
+    - name: Start sentry via docker compose
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: /root/{{ gno_dir }}
+      tags: [compose]

@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# Configuration du réseau VLAN privé (interface eno1.<vlan_id>)
+#
+# À lancer après que base_setup, install-sentry-node et install-validator-node
+# sont tous terminés et validés.
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml setup-private-network.yml -e target=gno-sentry -e vlan_id=1938
+#   ansible-playbook -i inventory.yaml setup-private-network.yml -e target=gno-validator -e vlan_id=2772
+#
+# Variables:
+#   target    - hôte ou groupe d'inventaire à cibler (obligatoire)
+#   vlan_id   - identifiant VLAN pour l'interface privée (défaut: 1938)
+#   private_ip - adresse IP statique de l'interface VLAN (définie dans l'inventaire)
+# =============================================================================
+
+- name: Setup private VLAN network interface
+  hosts: "{{ target }}"
+  become: false
+
+  vars:
+    vlan_id: "{{ vlan_id | default(1938) }}"
+
+  tasks:
+    - name: Configure /etc/network/interfaces with private VLAN
+      ansible.builtin.copy:
+        dest: /etc/network/interfaces
+        mode: "0644"
+        content: |
+          # Loopback
+          auto lo
+          iface lo inet loopback
+
+          # Public WAN interface
+          auto eno1
+          iface eno1 inet dhcp
+
+          # Private VLAN interface
+          auto eno1.{{ vlan_id }}
+          iface eno1.{{ vlan_id }} inet static
+              address {{ private_ip }}
+              netmask 255.255.252.0
+      when: private_ip is defined
+
+    - name: Bring up private VLAN interface
+      ansible.builtin.command:
+        cmd: ifup eno1.{{ vlan_id }}
+      when: private_ip is defined
+      changed_when: true
