@@ -98,21 +98,21 @@
     # --- Copie des fichiers de configuration vers le validator ----------------
     - name: Copy config.toml to validator
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        src: "{{ playbook_dir }}/validator/config.toml"
         dest: /root/{{ gno_dir }}/config.toml
         mode: "0644"
       tags: [config]
 
     - name: Copy genesis.json to validator
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        src: "{{ playbook_dir }}/validator/genesis.json"
         dest: /root/{{ gno_dir }}/genesis.json
         mode: "0644"
       tags: [config]
 
     - name: Copy entrypoint.sh to validator
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/entrypoint.sh"
+        src: "{{ playbook_dir }}/validator/entrypoint.sh"
         dest: /root/{{ gno_dir }}/entrypoint.sh
         mode: "0755"
       tags: [config]
@@ -146,7 +146,7 @@
 
     - name: Save images to tar on localhost (airgapped mode)
       ansible.builtin.command: >
-        docker save -o {{ playbook_dir }}/{{ gno_dir }}/{{ item.name }}.tar {{ item.image }}
+        docker save -o {{ playbook_dir }}/validator/{{ item.name }}.tar {{ item.image }}
       loop:
         - { name: gnoland, image: "{{ gno_image }}" }
         - { name: otel,    image: "{{ otel_image }}" }
@@ -156,7 +156,7 @@
 
     - name: Copy image tars to validator (airgapped mode)
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/{{ item }}.tar"
+        src: "{{ playbook_dir }}/validator/{{ item }}.tar"
         dest: /tmp/{{ item }}.tar
       loop:
         - gnoland
