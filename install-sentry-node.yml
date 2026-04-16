@@ -42,7 +42,7 @@
     # --- Téléchargement de genesis.json en local ------------------------------
     - name: Check if genesis.json already exists on localhost
       ansible.builtin.stat:
-        path: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        path: "{{ playbook_dir }}/validator/genesis.json"
       register: sentry_genesis_stat
       delegate_to: localhost
       tags: [config]
@@ -50,7 +50,7 @@
     - name: Download genesis.json to localhost
       ansible.builtin.get_url:
         url: "{{ genesis_url }}"
-        dest: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        dest: "{{ playbook_dir }}/validator/genesis.json"
         mode: "0644"
       delegate_to: localhost
       when: not sentry_genesis_stat.stat.exists
@@ -59,7 +59,7 @@
     # --- Téléchargement de config.toml en local -------------------------------
     - name: Check if config.toml already exists on localhost
       ansible.builtin.stat:
-        path: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        path: "{{ playbook_dir }}/validator/config.toml"
       register: sentry_config_stat
       delegate_to: localhost
       tags: [config]
@@ -67,7 +67,7 @@
     - name: Download config.toml to localhost
       ansible.builtin.get_url:
         url: "{{ config_url }}"
-        dest: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        dest: "{{ playbook_dir }}/validator/config.toml"
         mode: "0644"
       delegate_to: localhost
       when: not sentry_config_stat.stat.exists
@@ -76,21 +76,21 @@
     # --- Copie des fichiers de configuration vers le sentry ------------------
     - name: Copy config.toml to sentry
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/config.toml"
+        src: "{{ playbook_dir }}/validator/config.toml"
         dest: /root/{{ gno_dir }}/config.toml
         mode: "0644"
       tags: [config]
 
     - name: Copy genesis.json to sentry
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/genesis.json"
+        src: "{{ playbook_dir }}/validator/genesis.json"
         dest: /root/{{ gno_dir }}/genesis.json
         mode: "0644"
       tags: [config]
 
     - name: Copy entrypoint.sh to sentry
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/entrypoint.sh"
+        src: "{{ playbook_dir }}/validator/entrypoint.sh"
         dest: /root/{{ gno_dir }}/entrypoint.sh
         mode: "0755"
       tags: [config]
@@ -112,14 +112,14 @@
 
     - name: Save gno image to tar on localhost (airgapped mode)
       ansible.builtin.command: >
-        docker save -o {{ playbook_dir }}/{{ gno_dir }}/gnoland.tar {{ gno_image }}
+        docker save -o {{ playbook_dir }}/validator/gnoland.tar {{ gno_image }}
       delegate_to: localhost
       when: not gno_validator_has_internet | bool
       tags: [docker]
 
     - name: Copy gnoland image tar to sentry (airgapped mode)
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/{{ gno_dir }}/gnoland.tar"
+        src: "{{ playbook_dir }}/validator/gnoland.tar"
         dest: /tmp/gnoland.tar
       when: not gno_validator_has_internet | bool
       tags: [docker]
