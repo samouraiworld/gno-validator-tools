@@ -13,7 +13,7 @@ services:
     entrypoint: /entrypoint.sh
     environment:
       MONIKER: "{{ moniker_validator }}"
-      PERSISTENT_PEERS: "{{ persistent_peers | default('') }}" # p2p_addr_sentry
+      PERSISTENT_PEERS: "{{ persistent_peers_sentry | default('') }}"
       PEX: "{{ pex_validator }}" 
       MAX_PEERS: 2
       INBOUND: 0

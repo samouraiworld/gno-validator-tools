@@ -120,6 +120,14 @@
       tags: [config]
 
 
+    # --- Scripts utilitaires -------------------------------------------------
+    - name: Copy check_status.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/check_status.sh"
+        dest: /root/check_status.sh
+        mode: "0755"
+      tags: [config]
+
     # --- Démarrage du stack --------------------------------------------------
     - name: Start sentry via docker compose
       ansible.builtin.command: docker compose up -d
