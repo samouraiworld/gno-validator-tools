@@ -17,7 +17,7 @@
 
   vars:
     gno_dir: gnoland1
-    gno_image: ghcr.io/gnolang/gno/gnoland:chain-gnoland1
+    gno_image: ghcr.io/gnolang/gno/gnoland:chain-test11
     otel_image: otel/opentelemetry-collector-contrib:latest
     moniker_validator: samourai-crew-1
     moniker_sentry: samourai-dev-sentry-1
