@@ -23,13 +23,29 @@
     moniker_sentry: samourai-dev-sentry-1
     pex_validator: "False"
     seeds: ""
-    persistent_peers_sentry: ""
     private_peer_ids: ""
+    validator_p2p_ip: ""
     genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/gnoland1/genesis.json"
     config_url: "https://raw.githubusercontent.com/moul/gno/refs/heads/betanet-examples/misc/deployments/gnoland1/config.toml"
     gno_validator_has_internet: true
 
   tasks:
+
+    # --- Validation des prérequis --------------------------------------------
+    - name: Check that validator secrets have been generated
+      ansible.builtin.assert:
+        that:
+          - private_peer_ids | length > 0
+          - validator_p2p_ip | length > 0
+        fail_msg: |
+          ERROR: private_peer_ids ou validator_p2p_ip est vide.
+          Tu dois d'abord générer les secrets du validator :
+            ssh root@<validator-ip>
+            gnoland secrets init
+            gnoland secrets get   # → récupérer le node_id
+          Puis relancer avec :
+            -e private_peer_ids=<node_id> -e validator_p2p_ip=<validator-ip>
+      tags: [config]
 
     # --- Répertoire de travail ------------------------------------------------
     - name: Create gnoland working directory on sentry
