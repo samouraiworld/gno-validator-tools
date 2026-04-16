@@ -2,6 +2,7 @@ all:
   vars:
     ansible_user: root
     ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
     # UFW — monitoring IP (Vagrant monitoring VM)
     ufw_allow_ip: "192.168.56.12"
     # Ports restreints au monitoring (node_exporter, nginx_exporter, otel)

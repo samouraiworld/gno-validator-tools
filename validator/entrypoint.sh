@@ -28,8 +28,10 @@ gnoland config set p2p.private_peer_ids       "${PRIVATE_PEER_IDS}"
 gnoland config set p2p.seeds "${SEEDS}"
 gnoland config set p2p.max_num_outbound_peers  "${MAX_PEERS}"
 gnoland config set p2p.max_num_inbound_peers "${INBOUND}"
-gnoland config set telemetry.enabled true
+gnoland config set telemetry.metrics_enabled true
+gnoland config set rpc.laddr "tcp://0.0.0.0:26657"
+
 gnoland config set telemetry.service_instance_id "${MONIKER}"
 gnoland config set telemetry.exporter_endpoint "otel-collector:4317"
 
-exec gnoland start --skip-genesis-sig-verification --genesis="./gnoland-data/genesis.json" --log-level=${LOG_LEVEL}
+exec gnoland start --skip-genesis-sig-verification --genesis="./gnoland-data/genesis.json" --log-level=${LOG_LEVEL} --log-format=json
