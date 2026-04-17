@@ -195,9 +195,11 @@ ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml   # sentry rela
 
 ### Step 9 — Activate private VLAN
 
+> The `vlan_id` is assigned by your hosting provider when you create a private network (e.g. Scaleway Private Networks). Retrieve it from your provider's console before running this step.
+
 ```bash
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-sentry -e vlan_id=1938
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-validator -e vlan_id=2772
+ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-sentry -e vlan_id=<your_vlan_id>
+ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-validator -e vlan_id=<your_vlan_id>
 ```
 
 ---
