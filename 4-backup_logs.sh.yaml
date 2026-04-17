@@ -10,7 +10,7 @@
 # Prérequis : réseau privé NON activé (connexion directe à chaque nœud)
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml backup_logs.sh.yaml
+#   ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
 #
 # Variables:
 #   backup_dir      - répertoire des scripts et logs (défaut: /opt/backup_logs)

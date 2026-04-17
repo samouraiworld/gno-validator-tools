@@ -4,25 +4,6 @@
 # Copy this file to inventory.yaml and replace all <PLACEHOLDER> values.
 # =============================================================================
 
-# --- Production validators ----------------------------------------------------
-gno-validator-1:
-  hosts:
-    gno-validator-1:
-      public_ip: <VALIDATOR_1_PUBLIC_IP>
-      private_ip: <VALIDATOR_1_PRIVATE_IP>
-      ufw_ports_app: [26656]
-      ufw_ports_moni: [9100, 9113, 9464]
-      ufw_allow_ip: <MONITORING_IP>
-
-gno-validator-2:
-  hosts:
-    gno-validator-2:
-      public_ip: <VALIDATOR_2_PUBLIC_IP>
-      private_ip: <VALIDATOR_2_PRIVATE_IP>
-      ufw_ports_app: [26656]
-      ufw_ports_moni: [9100, 9113, 9464]
-      ufw_allow_ip: <MONITORING_IP>
-
 # --- Sentry node --------------------------------------------------------------
 gno-sentry:
   hosts:
@@ -35,14 +16,14 @@ gno-sentry:
   vars:
     ansible_user: root
 
-# --- Betanet group (validator + sentry — used by upload-betanet-deployment) ---
+# --- Betanet group (validator + sentry) ---------------------------------------
 betanet:
   hosts:
     gno-sentry:
       ansible_host: <SENTRY_PUBLIC_IP>
       private_ip: <SENTRY_PRIVATE_IP>
     gno-validator:
-      ansible_host: <VALIDATOR_PRIVATE_IP>   # private VLAN IP (overridden by pre_tasks)
+      ansible_host: <VALIDATOR_PUBLIC_IP>
       public_ip: <VALIDATOR_PUBLIC_IP>
       private_ip: <VALIDATOR_PRIVATE_IP>
   vars:

@@ -2,16 +2,14 @@
 # =============================================================================
 # Base system setup — Gnoland validator or sentry node
 #
-# Remplace base_setup_validator.yaml et base_setup_sentry.yaml.
-# Le rôle nginx est appliqué uniquement sur les hôtes du groupe gno-sentry.
-#
 # Usage:
-#   ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
-#   ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
+#   ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
+#   ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator
 #
 # Variables:
-#   target   - hôte ou groupe d'inventaire à cibler (obligatoire)
-#   gno_dir  - répertoire de travail gnoland sous /root (défaut: gnoland1)
+#   target        - hôte ou groupe d'inventaire à cibler (obligatoire)
+#   gno_dir       - répertoire de travail gnoland sous /root (défaut: gnoland1)
+#   install_nginx - installe le rôle nginx (défaut: false, passer true pour le sentry)
 # =============================================================================
 
 - name: Base system setup — Gnoland node
@@ -28,7 +26,7 @@
     - ufw
     - gnoland
     - role: nginx
-      when: "'gno-sentry' in group_names"
+      when: install_nginx | default(false) | bool
 
   tasks:
     - name: Create gnoland working directory
