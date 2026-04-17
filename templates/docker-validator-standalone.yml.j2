@@ -4,6 +4,7 @@ services:
     restart: on-failure
     ports:
       - 26656:26656
+      - 127.0.0.1:26657:26657
     volumes:
       - ./entrypoint.sh:/entrypoint.sh:ro
       - ./config.toml:/gnoroot/config.toml:ro
@@ -13,9 +14,9 @@ services:
     environment:
       MONIKER: "{{ moniker_validator }}"
       PERSISTENT_PEERS: "{{ persistent_peers | default('') }}"
-      PEX: "True"
-      MAX_PEERS: 40
-      INBOUND: 20
+      PEX: "true"
+      MAX_PEERS: 2
+      INBOUND: 0
 
   otel-collector:
     image: "{{ otel_image }}"

@@ -1,0 +1,48 @@
+---
+# =============================================================================
+# Base system setup — Gnoland validator or sentry node
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
+#   ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator
+#
+# Variables:
+#   target        - hôte ou groupe d'inventaire à cibler (obligatoire)
+#   gno_dir       - répertoire de travail gnoland sous /root (défaut: gnoland1)
+#   install_nginx - installe le rôle nginx (défaut: false, passer true pour le sentry)
+# =============================================================================
+
+- name: Base system setup — Gnoland node
+  hosts: "{{ target }}"
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+
+  roles:
+    - base_setup
+    - node_exporter
+    - docker
+    - ufw
+    - gnoland
+    - role: nginx
+      when: install_nginx | default(false) | bool
+
+  tasks:
+    - name: Create gnoland working directory
+      ansible.builtin.file:
+        path: /root/{{ gno_dir }}
+        state: directory
+        mode: "0750"
+
+    - name: Create otel config directory
+      ansible.builtin.file:
+        path: /root/{{ gno_dir }}/otel
+        state: directory
+        mode: "0750"
+
+    - name: Copy otel-config.yaml
+      ansible.builtin.copy:
+        src: ./validator/otel/otel-config.yaml
+        dest: /root/{{ gno_dir }}/otel/otel-config.yaml
+        mode: "0644"
