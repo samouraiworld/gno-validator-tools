@@ -130,52 +130,72 @@ cp group_vars/monitoring.yml.example group_vars/monitoring.yml
 
 ## 4. Deployment workflow
 
-Run playbooks in this order on a fresh infrastructure:
+### Step 1 — Prepare base system
 
 ```bash
-# Step 1 — Prepare base system on sentry and validator
 ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
 ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator
+```
 
-# Step 2 — MANUAL: Initialize gnoland secrets on each node
-# SSH to each node and run:
-#   ssh root@<sentry-ip>
-#   gnoland secrets init
-#   gnoland secrets get   # save the node_id output
-#
-#   ssh root@<validator-ip>
-#   gnoland secrets init
-#   gnoland secrets get   # save the node_id output
-#
-# Exchange node IDs:
-#   → Validator node_id is needed for sentry configuration (private_peer_ids + validator_p2p_ip)
-#   → Retrieve seed(s) from gnocore for the sentry (seeds variable)
+### Step 2 — MANUAL: Initialize gnoland secrets on each node
 
-# Step 3 — Deploy sentry node (requires validator node_id from step 2)
+SSH to each node and run:
+
+```bash
+gnoland secrets init
+gnoland secrets get   # save the node_id output
+```
+
+Exchange node IDs:
+- Validator `node_id` → needed for sentry (`private_peer_ids` + `validator_p2p_ip`)
+- Retrieve seed(s) from gnocore for the sentry (`seeds` variable)
+
+### Step 3 — Deploy sentry node
+
+```bash
 ansible-playbook -i inventory.yaml 2-install-sentry-node.yml \
   -e private_peer_ids=<validator_node_id> \
   -e validator_p2p_ip=<validator_public_ip>
+```
 
-# Step 4 — Deploy validator node (requires sentry p2p address from step 2)
+### Step 4 — Deploy validator node
+
+```bash
 ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
   -e persistent_peers_sentry=<sentry_node_id>@<sentry_ip>:26656
+```
 
-# Step 5 — Validate nodes are running and connected
-#   ssh root@<node-ip>
-#   docker logs <container-id>
-#   bash /root/check_status.sh
+### Step 5 — Validate nodes are running and connected
 
-# Step 6 — Deploy log backup scripts (optional)
+```bash
+ssh root@<node-ip>
+docker logs <container-id>
+bash /root/check_status.sh
+```
+
+### Step 6 — Deploy log backup scripts _(optional)_
+
+```bash
 ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
+```
 
-# Step 7 — Deploy Loki on monitoring server + loki-proxy on sentry (optional)
+### Step 7 — Deploy Loki stack _(optional)_
+
+```bash
 ansible-playbook -i inventory.yaml 5-deploy-loki.yaml
+```
 
-# Step 8 — Deploy Promtail on validator (choose one mode, optional)
+### Step 8 — Deploy Promtail on validator _(optional, choose one mode)_
+
+```bash
 ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml   # direct mode
+# OR
 ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml   # sentry relay mode
+```
 
-# Step 9 — Configure private VLAN interfaces (after validating everything works)
+### Step 9 — Activate private VLAN _(after validating everything works)_
+
+```bash
 ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-sentry -e vlan_id=1938
 ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-validator -e vlan_id=2772
 ```
