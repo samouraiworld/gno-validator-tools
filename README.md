@@ -22,8 +22,9 @@ This directory contains all Ansible playbooks and roles to deploy and operate a 
    - [6 — Promtail — direct mode](#56-6--promtail--direct-mode-6-deploy-promtail-directyaml)
    - [6 — Promtail — sentry relay mode](#57-6--promtail--sentry-relay-mode-6-deploy-promtail-sentryyaml)
    - [7 — Private network setup](#58-7--private-network-setup-7-setup-private-networkyml)
-6. [Variables reference](#6-variables-reference)
-7. [Security notes](#7-security-notes)
+6. [Tools](#6-tools)
+7. [Variables reference](#7-variables-reference)
+8. [Security notes](#8-security-notes)
 
 ---
 
@@ -399,7 +400,34 @@ ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-val
 
 ---
 
-## 6. Variables reference
+## 6. Tools
+
+### `validator/check_status.sh`
+
+Pre-flight validation script deployed to `/root/check_status.sh` on both sentry and validator. Takes the gnoland working directory as argument and runs a series of checks before starting the node.
+
+```bash
+bash /root/check_status.sh gnoland1
+```
+
+**What it checks:**
+
+| Section | Checks |
+| --- | --- |
+| **docker-compose.yml** | `image`, `MONIKER`, `PERSISTENT_PEERS` are set. On sentry: also `SEEDS` and `PRIVATE_PEER_IDS`. |
+| **Secrets** | `gnoland secrets get` returns valid JSON with `node_id`, `validator_address`, `p2p_address`. |
+| **priv_validator_state.json** | File exists, reports current `height` and `round`. |
+| **Database** | `gnoland-data/db` and `gnoland-data/wal` directories exist. |
+| **genesis.json** | File exists, prints its `sha256` checksum. |
+| **config.toml** | File exists. |
+
+Each check prints `✅` on success or `❌` on failure. The script exits with code `1` if any critical check fails.
+
+> Run this script after deploying a node (step 5) and after any configuration change to confirm the node is ready to start.
+
+---
+
+## 7. Variables reference
 
 ### Betanet (`group_vars/betanet.yml`)
 
@@ -440,7 +468,7 @@ ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-val
 
 ---
 
-## 7. Security notes
+## 8. Security notes
 
 - **Never commit** `group_vars/betanet.yml` or `group_vars/monitoring.yml` — add both to `.gitignore`.
 
