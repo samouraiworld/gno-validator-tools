@@ -173,19 +173,19 @@ docker logs <container-id>
 bash /root/check_status.sh
 ```
 
-### Step 6 — Deploy log backup scripts _(optional)_
+### Step 6 — Deploy log backup scripts
 
 ```bash
 ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
 ```
 
-### Step 7 — Deploy Loki stack _(optional)_
+### Step 7 — Deploy Loki stack
 
 ```bash
 ansible-playbook -i inventory.yaml 5-deploy-loki.yaml
 ```
 
-### Step 8 — Deploy Promtail on validator _(optional, choose one mode)_
+### Step 8 — Deploy Promtail on validator
 
 ```bash
 ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml   # direct mode
@@ -193,7 +193,7 @@ ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml   # direct mode
 ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml   # sentry relay mode
 ```
 
-### Step 9 — Activate private VLAN _(after validating everything works)_
+### Step 9 — Activate private VLAN
 
 ```bash
 ansible-playbook -i inventory.yaml 7-setup-private-network.yml -e target=gno-sentry -e vlan_id=1938
