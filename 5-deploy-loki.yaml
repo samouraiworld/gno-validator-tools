@@ -216,7 +216,6 @@
         dest: /etc/nginx/sites-available/{{ loki_domain }}
         mode: "0644"
       notify: Reload nginx
-      when: loki_cert_stat.stat.exists or not loki_cert_stat.stat.exists
       tags: [loki, tls]
 
     - name: Validate NGINX configuration (TLS vhost)

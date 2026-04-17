@@ -23,6 +23,7 @@
   become: false
 
   vars:
+    promtail_version: "3.4.2"
     gno_network_mode: private
     gno_sentry_ip: ""
     gno_validator_private_ip: ""

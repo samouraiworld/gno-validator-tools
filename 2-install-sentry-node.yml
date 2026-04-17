@@ -3,11 +3,11 @@
 # Install sentry node
 #
 # Prérequis : gnoland secrets init a été exécuté manuellement sur le sentry.
-# ansible-playbook -i inventory.yaml install-sentry-node.yml
+# ansible-playbook -i inventory.yaml 2-install-sentry-node.yml
 #
 # Tags disponibles :
 #   [config]   — répertoire, fichiers de config, génèse
-#   [docker]   — images Docker (pull / save / load)
+#   [docker]   — pull de l'image Docker
 #   [compose]  — démarrage du stack via docker compose
 # =============================================================================
 
@@ -18,16 +18,12 @@
   vars:
     gno_dir: gnoland1
     gno_image: ghcr.io/gnolang/gno/gnoland:chain-test11
-    otel_image: otel/opentelemetry-collector-contrib:latest
-    moniker_validator: samourai-crew-1
     moniker_sentry: samourai-dev-sentry-1
-    pex_validator: "False"
-    seeds: "g1vgvqg94xy8qj23dc8zpw6wns7q0hj9g8mx03ha@gno-core-sen-01.test11.testnets.gno.land:26656"
-    private_peer_ids: "g1va2x06789ejmxtjcxrppj84fv6sk800q67yz5y"
-    validator_p2p_ip: "192.168.56.10"
+    seeds: ""
+    private_peer_ids: ""
+    validator_p2p_ip: ""
     genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/test11/genesis.json"
     config_url: "https://raw.githubusercontent.com/gnolang/gno/refs/heads/master/misc/deployments/test11.gno.land/config.toml"
-
 
   tasks:
 
@@ -55,59 +51,33 @@
         mode: "0750"
       tags: [config]
 
-    # --- Téléchargement de genesis.json en local ------------------------------
-    - name: Check if genesis.json already exists on localhost
-      ansible.builtin.stat:
-        path: "{{ playbook_dir }}/validator/genesis.json"
-      register: sentry_genesis_stat
-      delegate_to: localhost
-      tags: [config]
-
-    - name: Download genesis.json to localhost
+    # --- Téléchargement de genesis.json et config.toml sur le sentry ---------
+    - name: Download genesis.json on sentry
       ansible.builtin.get_url:
         url: "{{ genesis_url }}"
-        dest: "{{ playbook_dir }}/validator/genesis.json"
-        mode: "0644"
-      delegate_to: localhost
-      when: not sentry_genesis_stat.stat.exists
-      tags: [config]
-
-    # --- Téléchargement de config.toml en local -------------------------------
-    - name: Check if config.toml already exists on localhost
-      ansible.builtin.stat:
-        path: "{{ playbook_dir }}/validator/config.toml"
-      register: sentry_config_stat
-      delegate_to: localhost
-      tags: [config]
-
-    - name: Download config.toml to localhost
-      ansible.builtin.get_url:
-        url: "{{ config_url }}"
-        dest: "{{ playbook_dir }}/validator/config.toml"
-        mode: "0644"
-      delegate_to: localhost
-      when: not sentry_config_stat.stat.exists
-      tags: [config]
-
-    # --- Copie des fichiers de configuration vers le sentry ------------------
-    - name: Copy config.toml to sentry
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/validator/config.toml"
-        dest: /root/{{ gno_dir }}/config.toml
-        mode: "0644"
-      tags: [config]
-
-    - name: Copy genesis.json to sentry
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/validator/genesis.json"
         dest: /root/{{ gno_dir }}/genesis.json
         mode: "0644"
       tags: [config]
 
+    - name: Download config.toml on sentry
+      ansible.builtin.get_url:
+        url: "{{ config_url }}"
+        dest: /root/{{ gno_dir }}/config.toml
+        mode: "0644"
+      tags: [config]
+
+    # --- Copie des fichiers locaux vers le sentry ----------------------------
     - name: Copy entrypoint.sh to sentry
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/validator/entrypoint.sh"
         dest: /root/{{ gno_dir }}/entrypoint.sh
+        mode: "0755"
+      tags: [config]
+
+    - name: Copy check_status.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/check_status.sh"
+        dest: /root/check_status.sh
         mode: "0755"
       tags: [config]
 
@@ -119,14 +89,10 @@
         mode: "0640"
       tags: [config]
 
-
-    # --- Scripts utilitaires -------------------------------------------------
-    - name: Copy check_status.sh to sentry
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/validator/check_status.sh"
-        dest: /root/check_status.sh
-        mode: "0755"
-      tags: [config]
+    # --- Images Docker --------------------------------------------------------
+    - name: Pull gno image on sentry
+      ansible.builtin.command: docker pull {{ gno_image }}
+      tags: [docker]
 
     # --- Démarrage du stack --------------------------------------------------
     - name: Start sentry via docker compose
