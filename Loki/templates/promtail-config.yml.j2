@@ -10,7 +10,7 @@ positions:
   filename: /tmp/positions.yaml
 
 clients:
-  - url: http://{{ sentry_private_ip }}/loki/api/v1/push
+  - url: http://{{ sentry_private_ip | default(hostvars['gno-sentry']['private_ip']) }}/loki/api/v1/push
     batchsize: 102400
     batchwait: 2s
 
