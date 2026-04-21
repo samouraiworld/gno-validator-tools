@@ -30,9 +30,14 @@ all:
           gno_sentry_ip: 192.168.56.11
           gno_network_mode: public
           ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
-          ufw_ports_moni: [9100, 9200, 9464]
+          ufw_ports_moni: [9100, 9113]
           ufw_ports_app: [26656]
-          ufw_allow_ip: 192.168.56.12 #ip of monitoring
+          ufw_allow_ip: 192.168.56.12 # ip of monitoring
+          validator_proxies:
+            - name: validator-1
+              private_ip: 192.168.56.10
+              node_exporter_port: 9200
+              otel_port: 9464
 
     monitoring_servers:
       hosts:
