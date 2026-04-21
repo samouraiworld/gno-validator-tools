@@ -20,7 +20,7 @@ scrape_configs:
       - targets:
           - localhost
         labels:
-          job: {{ promtail_job_name | default(moniker_validator) }}
+          job: {{ promtail_job_name | default(moniker_validator | default(inventory_hostname)) }}
           host: {{ inventory_hostname }}
           __path__: /var/lib/docker/containers/*/*.log
 
