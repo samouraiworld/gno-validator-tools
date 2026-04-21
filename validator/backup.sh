@@ -15,4 +15,4 @@ xz $FILENAME
 
 scp "${FILENAME}.xz" root@gno-sentry:/opt/backup_logs/backup
 
-find "$DIRECTORY" -type f -name "$(basename "$ARCHIVE_PATTERN")" -mtime +"$RETENTION_DAYS" -print -delete
+find "$DIRECTORY" -type f -name "*.log.xz" -mtime +"$RETENTION_DAYS" -delete
