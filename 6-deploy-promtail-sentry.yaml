@@ -28,6 +28,9 @@
     gno_sentry_ip: ""
     gno_validator_private_ip: ""
     gno_validator_public_ip: ""
+    # Loki job label — use format: <moniker>-<chain-id>  (e.g. samourai-crew-1-test12)
+    # Overrides moniker_validator from group_vars/betanet.yml if set.
+    promtail_job_name: ""
 
   pre_tasks:
     - name: Set SSH connection for private network mode
