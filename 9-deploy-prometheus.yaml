@@ -1,0 +1,190 @@
+---
+# =============================================================================
+# Deploy Prometheus on monitoring server
+#
+# Prometheus runs as a systemd binary service (same pattern as Loki).
+# Scrape targets are defined in prometheus_scrape_jobs (group_vars/monitoring.yml).
+# The Prometheus datasource is provisioned into Grafana automatically.
+#
+# Scrape architecture:
+#   Prometheus → sentry:9100  (sentry node_exporter)
+#   Prometheus → sentry:9113  (sentry nginx_exporter)
+#   Prometheus → sentry:9200  (validator-1 node_exporter via sentry proxy)
+#   Prometheus → sentry:9464  (validator-1 OTEL via sentry proxy)
+#
+# Prerequisites:
+#   - Grafana deployed (run 8-deploy-grafana.yaml first — datasource is provisioned here)
+#   - group_vars/monitoring.yml configured with prometheus_version and prometheus_scrape_jobs
+#
+# Note (Vagrant): same pattern as Loki — pass target and group_vars explicitly:
+#   ansible-playbook -i inventory-vagrant.yaml 9-deploy-prometheus.yaml \
+#     -e target=gno-monitoring-test \
+#     -e @group_vars/monitoring.yml
+#
+# Usage:
+#   # Production
+#   ansible-playbook -i inventory.yaml 9-deploy-prometheus.yaml \
+#     -e @group_vars/monitoring.yml
+#
+#   # Vagrant
+#   ansible-playbook -i inventory-vagrant.yaml 9-deploy-prometheus.yaml \
+#     -e target=gno-monitoring-test \
+#     -e @group_vars/monitoring.yml
+#
+#   # Redeploy Prometheus only (skip Grafana datasource)
+#   ansible-playbook -i inventory.yaml 9-deploy-prometheus.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags prometheus
+#
+#   # Update scrape config only
+#   ansible-playbook -i inventory.yaml 9-deploy-prometheus.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags config
+# =============================================================================
+
+- name: Deploy Prometheus on monitoring server
+  hosts: "{{ target | default('monitoring') }}"
+  become: false
+
+  handlers:
+    - name: Restart prometheus
+      ansible.builtin.service:
+        name: prometheus
+        state: restarted
+
+    - name: Restart grafana
+      ansible.builtin.command:
+        cmd: docker compose restart grafana
+        chdir: /opt/grafana
+
+  tasks:
+    # --- User and directories ------------------------------------------------
+    - name: Create prometheus system user
+      ansible.builtin.user:
+        name: prometheus
+        system: true
+        shell: /sbin/nologin
+        create_home: false
+      tags: [prometheus]
+
+    - name: Create Prometheus directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: prometheus
+        group: prometheus
+        mode: "0750"
+      loop:
+        - /opt/prometheus
+        - /etc/prometheus
+        - /var/lib/prometheus
+      tags: [prometheus]
+
+    # --- Binary install -------------------------------------------------------
+    - name: Check installed Prometheus version
+      ansible.builtin.command: /opt/prometheus/prometheus --version
+      register: prometheus_installed_version
+      changed_when: false
+      failed_when: false
+      tags: [prometheus]
+
+    - name: Download Prometheus archive
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: /tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz
+        mode: "0644"
+        force: true
+      when: prometheus_installed_version.rc != 0 or prometheus_version not in prometheus_installed_version.stdout
+      tags: [prometheus]
+
+    - name: Extract Prometheus archive
+      ansible.builtin.unarchive:
+        src: /tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz
+        dest: /tmp/
+        remote_src: true
+      when: prometheus_installed_version.rc != 0 or prometheus_version not in prometheus_installed_version.stdout
+      tags: [prometheus]
+
+    - name: Install prometheus binary
+      ansible.builtin.copy:
+        src: /tmp/prometheus-{{ prometheus_version }}.linux-amd64/prometheus
+        dest: /opt/prometheus/prometheus
+        remote_src: true
+        mode: "0755"
+        owner: prometheus
+        group: prometheus
+      when: prometheus_installed_version.rc != 0 or prometheus_version not in prometheus_installed_version.stdout
+      notify: Restart prometheus
+      tags: [prometheus]
+
+    - name: Install promtool binary
+      ansible.builtin.copy:
+        src: /tmp/prometheus-{{ prometheus_version }}.linux-amd64/promtool
+        dest: /opt/prometheus/promtool
+        remote_src: true
+        mode: "0755"
+        owner: prometheus
+        group: prometheus
+      when: prometheus_installed_version.rc != 0 or prometheus_version not in prometheus_installed_version.stdout
+      tags: [prometheus]
+
+    # --- Configuration --------------------------------------------------------
+    - name: Deploy Prometheus configuration
+      ansible.builtin.template:
+        src: Loki/templates/prometheus-config.yml.j2
+        dest: /etc/prometheus/prometheus.yml
+        owner: prometheus
+        group: prometheus
+        mode: "0640"
+      notify: Restart prometheus
+      tags: [prometheus, config]
+
+    # --- Systemd service ------------------------------------------------------
+    - name: Deploy prometheus.service systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/prometheus.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus monitoring system
+          Documentation=https://prometheus.io/docs/
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=prometheus
+          ExecStart=/opt/prometheus/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus \
+            --storage.tsdb.retention.time={{ prometheus_retention | default('30d') }} \
+            --web.listen-address=127.0.0.1:{{ prometheus_http_port | default(9090) }}
+          Restart=on-failure
+          RestartSec=5s
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart prometheus
+      tags: [prometheus]
+
+    - name: Enable and start Prometheus service
+      ansible.builtin.systemd:
+        name: prometheus
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [prometheus]
+
+    # --- Grafana datasource provisioning -------------------------------------
+    - name: Deploy Prometheus datasource into Grafana provisioning
+      ansible.builtin.template:
+        src: Loki/templates/grafana-prometheus-datasource.yml.j2
+        dest: /opt/grafana/provisioning/datasources/prometheus.yml
+        mode: "0644"
+      notify: Restart grafana
+      tags: [prometheus, grafana]
+
+    - name: Force Grafana restart to load datasource
+      ansible.builtin.meta: flush_handlers
+      tags: [prometheus, grafana]
