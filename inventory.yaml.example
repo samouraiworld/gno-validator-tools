@@ -31,8 +31,19 @@ all:
           public_ip: <SENTRY_PUBLIC_IP>
           private_ip: <SENTRY_PRIVATE_IP>
           ufw_ports_app: [26656]
-          ufw_ports_moni: [9100, 9113, 9464]
+          ufw_ports_moni: [9100, 9113]   # sentry's own exporters only
           ufw_allow_ip: <MONITORING_IP>
+          # Validator metric proxies — add one entry per validator.
+          # UFW rules for proxy ports are managed by 5b-deploy-validator-proxies.yaml.
+          validator_proxies:
+            - name: validator-1
+              private_ip: <VALIDATOR_PRIVATE_IP>
+              node_exporter_port: 9200   # port exposed on sentry → validator:9100
+              otel_port: 9464            # port exposed on sentry → validator:9464
+            # - name: validator-2
+            #   private_ip: <VALIDATOR_2_PRIVATE_IP>
+            #   node_exporter_port: 9201
+            #   otel_port: 9465
 
     # --- Betanet group (validator + sentry — used by upload-betanet-deployment) -
     betanet:
