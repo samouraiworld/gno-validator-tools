@@ -73,3 +73,29 @@ loki_validator_ips:
 # --- Loki retention -----------------------------------------------------------
 # How long to keep logs (in hours). Default: 1440h = 60 days.
 loki_retention_hours: 1440
+
+# =============================================================================
+# Grafana (8-deploy-grafana.yaml)
+# =============================================================================
+
+# --- Grafana version ----------------------------------------------------------
+# Docker image tag. Use a pinned version in production.
+# Check https://hub.docker.com/r/grafana/grafana/tags for latest stable.
+grafana_version: "latest"
+
+# --- Grafana domain and TLS ---------------------------------------------------
+# Fully qualified domain name pointing to this monitoring server.
+# A Let's Encrypt certificate will be issued for this domain.
+# For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
+grafana_domain: "grafana.example.com"
+# Vagrant example: grafana_domain: "192.168.56.12"
+
+# --- Grafana admin password ---------------------------------------------------
+# Password for the built-in 'admin' account.
+#
+# WARNING: Never store this value in plaintext in a file committed to git.
+# Encrypt it with ansible-vault:
+#   ansible-vault encrypt_string 'your-password' --name 'grafana_admin_password'
+#
+# For Vagrant testing only (never in production):
+grafana_admin_password: "changeme"
