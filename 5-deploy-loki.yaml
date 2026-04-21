@@ -5,21 +5,44 @@
 # Play 1: monitoring server — Loki binary + systemd + NGINX vhost + Let's Encrypt
 # Play 2: gno-sentry       — loki-proxy NGINX vhost (relay with token injection)
 #
+# Log flow:
+#   Validator ──(private VLAN)──► Sentry (loki-proxy) ──(HTTPS+token)──► Monitoring (Loki)
+#
 # Prerequisites:
 #   - Ubuntu/Debian on all target hosts
 #   - NGINX installed on monitoring server (run base_setup role first)
 #   - NGINX installed on sentry (run base_setup_sentry.yaml first)
-#   - Domain name {{ loki_domain }} pointing to monitoring server IP
+#   - Domain name pointing to monitoring server IP (not required for Vagrant, use --skip-tags tls)
 #   - group_vars/monitoring.yml configured (copy from monitoring.yml.example)
 #
+# Note (Vagrant): the monitoring host is in group 'monitoring_servers' in inventory-vagrant.yaml,
+#   not 'monitoring', so group_vars/monitoring.yml is not auto-loaded.
+#   Pass it explicitly with -e @group_vars/monitoring.yml (see Vagrant usage below).
+#
 # Security:
-#   - loki_bearer_token must be encrypted with ansible-vault:
+#   - loki_bearer_token must be encrypted with ansible-vault in production:
 #     ansible-vault encrypt_string 'your-token' --name 'loki_bearer_token'
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deploy-loki.yaml
-#   ansible-playbook -i inventory.yaml deploy-loki.yaml --tags loki -e target=vagrant
-#   ansible-playbook -i inventory.yaml deploy-loki.yaml --tags proxy -e target=vagrant
+#   # Production — full deploy (Loki + TLS + sentry proxy)
+#   ansible-playbook -i inventory.yaml 5-deploy-loki.yaml \
+#     -e @group_vars/monitoring.yml
+#
+#   # Vagrant — no TLS (no real domain), variables loaded explicitly
+#   ansible-playbook -i inventory-vagrant.yaml 5-deploy-loki.yaml \
+#     -e target=gno-monitoring-test \
+#     -e @group_vars/monitoring.yml \
+#     --skip-tags tls
+#
+#   # Redeploy Loki only (skip NGINX and TLS)
+#   ansible-playbook -i inventory.yaml 5-deploy-loki.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags loki
+#
+#   # Redeploy sentry proxy only
+#   ansible-playbook -i inventory.yaml 5-deploy-loki.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags proxy
 # =============================================================================
 
 # ---------------------------------------------------------------------------
