@@ -99,3 +99,62 @@ grafana_domain: "grafana.example.com"
 #
 # For Vagrant testing only (never in production):
 grafana_admin_password: "changeme"
+
+# =============================================================================
+# Prometheus (9-deploy-prometheus.yaml)
+# =============================================================================
+
+# --- Prometheus version -------------------------------------------------------
+# Binary downloaded from GitHub releases.
+# Check https://github.com/prometheus/prometheus/releases for the latest stable.
+prometheus_version: "3.1.0"
+
+# --- Prometheus port ----------------------------------------------------------
+# Prometheus listens locally only — reached by Grafana via host.docker.internal.
+prometheus_http_port: 9090
+
+# --- Retention ----------------------------------------------------------------
+prometheus_retention: "30d"
+
+# --- Scrape jobs --------------------------------------------------------------
+# One entry per target. Add a new job for each additional validator proxy.
+# Targets use the sentry's PUBLIC IP — the sentry proxies validator metrics.
+prometheus_scrape_jobs:
+  - job_name: node_exporter_sentry
+    targets: ["<SENTRY_PUBLIC_IP>:9100"]
+    labels:
+      node: sentry
+
+  - job_name: nginx_exporter_sentry
+    targets: ["<SENTRY_PUBLIC_IP>:9113"]
+    labels:
+      node: sentry
+
+  - job_name: node_exporter_validator_1
+    targets: ["<SENTRY_PUBLIC_IP>:9200"]
+    labels:
+      node: validator-1
+
+  - job_name: otel_validator_1
+    targets: ["<SENTRY_PUBLIC_IP>:9464"]
+    labels:
+      node: validator-1
+
+# Vagrant example:
+# prometheus_scrape_jobs:
+#   - job_name: node_exporter_sentry
+#     targets: ["192.168.56.11:9100"]
+#     labels:
+#       node: sentry
+#   - job_name: nginx_exporter_sentry
+#     targets: ["192.168.56.11:9113"]
+#     labels:
+#       node: sentry
+#   - job_name: node_exporter_validator_1
+#     targets: ["192.168.56.11:9200"]
+#     labels:
+#       node: validator-1
+#   - job_name: otel_validator_1
+#     targets: ["192.168.56.11:9464"]
+#     labels:
+#       node: validator-1
