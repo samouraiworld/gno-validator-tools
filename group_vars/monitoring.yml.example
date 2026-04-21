@@ -3,6 +3,12 @@
 # gno-validator-tools — monitoring group vars
 # Copy to group_vars/monitoring.yml and fill in your values.
 # Add group_vars/monitoring.yml to .gitignore — never commit real secrets.
+#
+# Log flow:
+#   Validator ──(private VLAN)──► Sentry (loki-proxy NGINX) ──(HTTPS)──► Monitoring (Loki)
+#
+#   loki_validator_ips : IPs allowed to push to the sentry's loki-proxy   (validator private IPs)
+#   loki_allowed_ips   : IPs allowed to push to Loki on the monitoring server (sentry public IPs)
 # =============================================================================
 
 # --- Loki version -------------------------------------------------------------
@@ -20,12 +26,12 @@ loki_http_port: 3100
 # --- Loki domain and TLS ------------------------------------------------------
 # Fully qualified domain name pointing to this monitoring server.
 # A Let's Encrypt certificate will be issued for this domain.
-loki_domain: ""
-# Example: loki_domain: "mirador.example.com"
+# For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
+loki_domain: "mirador.example.com"
+# Vagrant example: loki_domain: "192.168.56.12"
 
 # Email address for Let's Encrypt certificate registration and renewal notices.
-letsencrypt_email: ""
-# Example: letsencrypt_email: "ops@example.com"
+letsencrypt_email: "ops@example.com"
 
 # --- Authentication -----------------------------------------------------------
 # Bearer token used to authenticate log push requests to Loki.
@@ -38,29 +44,31 @@ letsencrypt_email: ""
 #   ansible-vault encrypt_string 'your-token-here' --name 'loki_bearer_token'
 #
 # Paste the encrypted block here:
-loki_bearer_token: ""
-# Example (vault-encrypted):
 # loki_bearer_token: !vault |
 #   $ANSIBLE_VAULT;1.1;AES256
 #   ...
+#
+# For Vagrant testing only (never in production):
+loki_bearer_token: "changeme"
 
-# --- IP whitelist for Loki endpoint -------------------------------------------
-# Only these IPs are allowed to push logs to /loki/ on the monitoring server.
-# Add the public IP of each sentry node.
-loki_allowed_ips: []
-# Example:
+# --- IP whitelist for Loki endpoint (monitoring server side) ------------------
+# Controls who can push logs to https://<loki_domain>/loki/ on the monitoring server.
+# Add the PUBLIC IP of each sentry node — the sentry is the one forwarding logs to Loki.
+loki_allowed_ips:
+  - "51.159.14.234"     # gno-sentry-1 production
+# Vagrant example:
 # loki_allowed_ips:
-#   - "51.159.14.234"     # gno-sentry production
-#   - "51.159.103.166"    # gno-sentry-test12
+#   - "192.168.56.11"   # gno-sentry Vagrant VM
 
 # --- IP whitelist for loki-proxy (sentry side) --------------------------------
-# Only these IPs are allowed to push through the sentry's loki-proxy.
-# Add the private VLAN IPs of all validator nodes.
-loki_validator_ips: []
-# Example:
+# Controls who can push logs to the sentry's loki-proxy (port 80, private VLAN).
+# Add the PRIVATE VLAN IP of each validator node — validators push to the sentry proxy,
+# which injects the Bearer token and forwards to Loki. Validators never hold the token.
+loki_validator_ips:
+  - "172.16.12.2"       # gno-validator-1 production
+# Vagrant example:
 # loki_validator_ips:
-#   - "172.16.12.2"       # gno-validator-1
-#   - "172.16.12.3"       # gno-validator-2
+#   - "192.168.56.10"   # gno-validator Vagrant VM
 
 # --- Loki retention -----------------------------------------------------------
 # How long to keep logs (in hours). Default: 1440h = 60 days.
