@@ -6,8 +6,8 @@
 # The Loki datasource is provisioned automatically on first start.
 #
 # Prerequisites:
-#   - Docker installed on monitoring server (run 1-base_setup.yml first)
 #   - NGINX installed on monitoring server (run 1-base_setup.yml with install_nginx=true)
+#   - Docker is installed automatically by this playbook (docker role)
 #   - Loki deployed and running (run 5-deploy-loki.yaml first)
 #   - group_vars/monitoring.yml configured with grafana_domain and grafana_admin_password
 #
@@ -43,6 +43,9 @@
 - name: Deploy Grafana on monitoring server
   hosts: "{{ target | default('monitoring') }}"
   become: false
+
+  roles:
+    - docker
 
   handlers:
     - name: Reload nginx
