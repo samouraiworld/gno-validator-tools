@@ -4,6 +4,6 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://host.docker.internal:{{ prometheus_http_port | default(9090) }}
+    url: http://prometheus:{{ prometheus_http_port | default(9090) }}
     isDefault: false
     editable: false
