@@ -14,6 +14,7 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 6. [Tools & scripts](#tools--scripts)
 7. [Variables reference](#variables-reference)
 8. [Security considerations](#security-considerations)
+9. [Adding a new validator](#adding-a-new-validator)
 
 ---
 
@@ -810,3 +811,135 @@ Use nip.io subdomains in `monitoring.yml`:
 - `grafana_domain: "grafana.192.168.56.12.nip.io"`
 - `loki_domain: "loki.192.168.56.12.nip.io"`
 - `loki_scheme: "http"` (not `https`)
+
+---
+
+## Adding a new validator
+
+This section covers what to do when you need to add a second (or Nth) validator to an existing infrastructure that already has a sentry and a monitoring server running.
+
+### 1. Update the inventory
+
+Add the new validator host under the `validators` group in `inventory.yaml`:
+
+```yaml
+validators:
+  hosts:
+    gno-validator:          # existing validator
+      ansible_host: 10.0.0.10
+      private_ip: 10.0.0.10
+      moniker_validator: samourai-crew-1
+      ...
+
+    gno-validator-2:        # new validator
+      ansible_host: 10.0.0.20
+      private_ip: 10.0.0.20
+      moniker_validator: samourai-crew-2
+      gno_network_mode: public
+      ansible_ssh_private_key_file: /path/to/key
+```
+
+Then add two entries to `validator_proxies` on the sentry host. Each validator needs one proxy port for `node_exporter` and one for OTEL — pick ports that don't conflict with existing ones:
+
+```yaml
+sentries:
+  hosts:
+    gno-sentry:
+      ...
+      validator_proxies:
+        - name: validator-1          # existing
+          private_ip: 10.0.0.10
+          node_exporter_port: 9200
+          otel_port: 9464
+        - name: validator-2          # new
+          private_ip: 10.0.0.20
+          node_exporter_port: 9201
+          otel_port: 9465
+```
+
+### 2. Update monitoring variables
+
+In `group_vars/monitoring.yml`, add two new scrape jobs for the new validator's metrics (routed through the sentry proxies):
+
+```yaml
+prometheus_scrape_jobs:
+  # existing jobs ...
+  - job_name: validator-2-node
+    static_configs:
+      - targets: ["<sentry_public_ip>:9201"]
+        labels:
+          node: validator-2
+  - job_name: validator-2-otel
+    static_configs:
+      - targets: ["<sentry_public_ip>:9465"]
+        labels:
+          node: validator-2
+```
+
+### 3. Bootstrap the new validator
+
+Run the base setup and install the node binary:
+
+```bash
+ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator-2
+```
+
+Then SSH into the new validator and initialise its secrets:
+
+```bash
+ssh root@<validator-2-ip>
+gnoland secrets init
+gnoland secrets get    # note the node ID
+```
+
+### 4. Deploy the validator node
+
+Use the sentry's node ID (already running) as the persistent peer:
+
+```bash
+ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
+  -e target=gno-validator-2 \
+  -e persistent_peers_sentry=<sentry_node_id>@<sentry_private_ip>:26656
+```
+
+### 5. Deploy the sentry proxies
+
+Re-run the proxy playbook on the sentry. It loops over `validator_proxies` and is idempotent — existing proxies are untouched, new ones are created:
+
+```bash
+ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml
+```
+
+This creates two new NGINX vhosts on the sentry (`:9201` and `:9465`) and adds the corresponding UFW rules.
+
+### 6. Reload Prometheus
+
+Push the updated scrape config to the monitoring server:
+
+```bash
+ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml --tags config
+```
+
+Prometheus will reload automatically and start scraping the new validator's metrics.
+
+### 7. Deploy Promtail on the new validator
+
+```bash
+ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml \
+  -e target=gno-validator-2
+```
+
+Logs from the new validator will appear in Grafana under the label `job: samourai-crew-2` (the value of `moniker_validator`).
+
+### Summary
+
+| Step | Playbook / action | Scope |
+| ---- | ----------------- | ----- |
+| 1 | Edit `inventory.yaml` | Add host + `validator_proxies` entry |
+| 2 | Edit `group_vars/monitoring.yml` | Add 2 Prometheus scrape jobs |
+| 3 | `1-base_setup.yml -e target=gno-validator-2` | New validator only |
+| 4 | Manual: `gnoland secrets init` on new validator | New validator only |
+| 5 | `3-install-validator-node.yml -e target=gno-validator-2` | New validator only |
+| 6 | `5b-deploy-validator-proxies.yaml` | Sentry (idempotent) |
+| 7 | `5-deploy-monitoring-stack.yaml --tags config` | Monitoring server |
+| 8 | `6-deploy-promtail-sentry.yaml -e target=gno-validator-2` | New validator only |
