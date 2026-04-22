@@ -7,7 +7,7 @@
 #
 # Prerequisites:
 #   - Ubuntu/Debian on validator
-#   - Loki deployed and accessible at loki_domain (run deploy-loki.yaml first)
+#   - Loki deployed and accessible at loki_domain (run 5-deploy-loki.yaml first)
 #   - Validator has outbound internet access (port 443)
 #   - group_vars/betanet.yml configured with loki_domain and loki_bearer_token
 #
@@ -17,9 +17,7 @@
 #     ansible-vault encrypt_string 'your-token' --name 'loki_bearer_token'
 #
 # Usage:
-#   ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml
-#   ansible-playbook -i inventory.yaml deploy-promtail-direct.yaml \
-#     -e target=gno-validator-1
+#   ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml
 # =============================================================================
 
 - name: Deploy Promtail on validator (direct mode)
@@ -27,17 +25,7 @@
   become: false
 
   vars:
-    gno_network_mode: public
-    gno_validator_public_ip: ""
-
-  pre_tasks:
-    - name: Set SSH connection for public network mode
-      ansible.builtin.set_fact:
-        ansible_host: "{{ gno_validator_public_ip }}"
-        ansible_ssh_common_args: ""
-      when:
-        - gno_network_mode == "public"
-        - gno_validator_public_ip != ""
+    promtail_version: "3.6.8"
 
   handlers:
     - name: Restart promtail

@@ -1,0 +1,143 @@
+---
+# =============================================================================
+# Deploy log backup and rotation scripts for validator and sentry nodes
+#
+# - validator: installe backup.sh — extrait 24h de logs gnoland et SCP vers sentry
+# - sentry:    installe rotate.sh — rotation 30 jours
+#
+# Les deux scripts sont planifiés via cron à 00:10 quotidiennement.
+#
+# Prérequis : réseau privé NON activé (connexion directe à chaque nœud)
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
+#
+# Variables:
+#   backup_dir      - répertoire des scripts et logs (défaut: /opt/backup_logs)
+#   container_name  - nom du container gnoland sur le validator
+# =============================================================================
+
+# --- Play 1 : générer la clé SSH sur le validator ----------------------------
+- name: Generate SSH key on validator
+  hosts: gno-validator
+  become: false
+
+  tasks:
+
+    - name: Generate ed25519 SSH key for root on validator
+      community.crypto.openssh_keypair:
+        path: /root/.ssh/id_ed25519
+        type: ed25519
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Fetch validator public key
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519.pub
+      register: validator_pubkey
+
+
+# --- Play 2 : déployer rotate.sh sur le sentry + autoriser la clé validator --
+- name: Deploy rotate.sh on sentry and authorize validator SSH key
+  hosts: gno-sentry
+  become: false
+
+  vars:
+    backup_dir: /opt/backup_logs
+
+  tasks:
+
+    - name: Create backup scripts directory on sentry
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Create backup log storage directory on sentry
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/backup"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Copy rotate.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/rotate.sh"
+        dest: "{{ backup_dir }}/rotate.sh"
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Schedule log rotation cron on sentry (daily at 00:10)
+      ansible.builtin.cron:
+        name: "Rotate backup logs"
+        minute: "10"
+        hour: "0"
+        job: "bash {{ backup_dir }}/rotate.sh >> {{ backup_dir }}/rotate_cron.log 2>&1"
+        user: root
+
+    - name: Authorize validator SSH public key on sentry
+      ansible.posix.authorized_key:
+        user: root
+        state: present
+        key: "{{ hostvars['gno-validator']['validator_pubkey']['content'] | b64decode }}"
+
+
+# --- Play 3 : déployer backup.sh sur le validator ----------------------------
+- name: Deploy backup.sh on validator
+  hosts: gno-validator
+  become: false
+
+  vars:
+    backup_dir: /opt/backup_logs
+    container_name: "gnoland1-validator-1"
+
+  tasks:
+
+    - name: Create backup scripts directory on validator
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Create backup log storage directory on validator
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/backup"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Copy backup.sh to validator
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/backup.sh"
+        dest: "{{ backup_dir }}/backup.sh"
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Set CONTAINER variable in backup.sh
+      ansible.builtin.lineinfile:
+        path: "{{ backup_dir }}/backup.sh"
+        regexp: '^CONTAINER='
+        line: 'CONTAINER="{{ container_name }}"'
+
+    - name: Set sentry IP in backup.sh SCP line
+      ansible.builtin.lineinfile:
+        path: "{{ backup_dir }}/backup.sh"
+        regexp: '^scp '
+        line: 'scp "${FILENAME}.xz" root@{{ hostvars["gno-sentry"]["private_ip"] }}:/opt/backup_logs/backup'
+
+    - name: Schedule log backup cron on validator (daily at 00:10)
+      ansible.builtin.cron:
+        name: "Backup validator logs"
+        minute: "10"
+        hour: "0"
+        job: "bash {{ backup_dir }}/backup.sh >> {{ backup_dir }}/backup_cron.log 2>&1"
+        user: root

@@ -4,64 +4,62 @@
 # Copy this file to inventory.yaml and replace all <PLACEHOLDER> values.
 # =============================================================================
 
-# --- Production validators ----------------------------------------------------
-gno-validator-1:
-  hosts:
-    gno-validator-1:
-      public_ip: <VALIDATOR_1_PUBLIC_IP>
-      private_ip: <VALIDATOR_1_PRIVATE_IP>
-      ufw_ports_app: [26656]
-      ufw_ports_moni: [9100, 9113, 9464]
-      ufw_allow_ip: <MONITORING_IP>
-
-gno-validator-2:
-  hosts:
-    gno-validator-2:
-      public_ip: <VALIDATOR_2_PUBLIC_IP>
-      private_ip: <VALIDATOR_2_PRIVATE_IP>
-      ufw_ports_app: [26656]
-      ufw_ports_moni: [9100, 9113, 9464]
-      ufw_allow_ip: <MONITORING_IP>
-
-# --- Sentry node --------------------------------------------------------------
-gno-sentry:
-  hosts:
-    gno-sentry:
-      ansible_host: <SENTRY_PUBLIC_IP>
-      private_ip: <SENTRY_PRIVATE_IP>
-      ufw_ports_app: [26656]
-      ufw_ports_moni: [9100, 9113, 9464]
-      ufw_allow_ip: <MONITORING_IP>
+all:
   vars:
     ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
 
-# --- Betanet group (validator + sentry — used by upload-betanet-deployment) ---
-betanet:
-  hosts:
-    gno-sentry:
-      ansible_host: <SENTRY_PUBLIC_IP>
-      private_ip: <SENTRY_PRIVATE_IP>
-    gno-validator:
-      ansible_host: <VALIDATOR_PRIVATE_IP>   # private VLAN IP (overridden by pre_tasks)
-      public_ip: <VALIDATOR_PUBLIC_IP>
-      private_ip: <VALIDATOR_PRIVATE_IP>
-  vars:
-    ansible_user: root
+  children:
 
-# --- Monitoring server --------------------------------------------------------
-monitoring:
-  hosts:
-    monitoring-server:
-      ansible_host: <MONITORING_PUBLIC_IP>
-  vars:
-    ansible_user: root
+    # --- Validator nodes -------------------------------------------------------
+    validators:
+      hosts:
+        gno-validator:
+          ansible_host: <VALIDATOR_PUBLIC_IP>
+          public_ip: <VALIDATOR_PUBLIC_IP>
+          private_ip: <VALIDATOR_PRIVATE_IP>
+          ufw_ports_app: [26656]
+          ufw_ports_moni: [9100, 9113, 9464]
+          ufw_allow_ip: <MONITORING_IP>
 
-# --- Local dev / Vagrant ------------------------------------------------------
-vagrant:
-  hosts:
-    vagrant:
-      ansible_host: 127.0.0.1
-      ansible_port: 2222
-      ansible_ssh_private_key_file: vagrant/.vagrant/machines/default/virtualbox/private_key
-  vars:
-    ansible_user: root
+    # --- Sentry node -----------------------------------------------------------
+    sentries:
+      hosts:
+        gno-sentry:
+          ansible_host: <SENTRY_PUBLIC_IP>
+          public_ip: <SENTRY_PUBLIC_IP>
+          private_ip: <SENTRY_PRIVATE_IP>
+          ufw_ports_app: [26656]
+          ufw_ports_moni: [9100, 9113]   # sentry's own exporters only
+          ufw_allow_ip: <MONITORING_IP>
+          # Validator metric proxies — add one entry per validator.
+          # UFW rules for proxy ports are managed by 5b-deploy-validator-proxies.yaml.
+          validator_proxies:
+            - name: validator-1
+              private_ip: <VALIDATOR_PRIVATE_IP>
+              node_exporter_port: 9200   # port exposed on sentry → validator:9100
+              otel_port: 9464            # port exposed on sentry → validator:9464
+            # - name: validator-2
+            #   private_ip: <VALIDATOR_2_PRIVATE_IP>
+            #   node_exporter_port: 9201
+            #   otel_port: 9465
+
+    # --- Betanet group (validator + sentry — used by upload-betanet-deployment) -
+    betanet:
+      hosts:
+        gno-sentry:
+          ansible_host: <SENTRY_PUBLIC_IP>
+          public_ip: <SENTRY_PUBLIC_IP>
+          private_ip: <SENTRY_PRIVATE_IP>
+        gno-validator:
+          ansible_host: <VALIDATOR_PRIVATE_IP>   # private VLAN IP (overridden by pre_tasks)
+          public_ip: <VALIDATOR_PUBLIC_IP>
+          private_ip: <VALIDATOR_PRIVATE_IP>
+
+    # --- Monitoring server -----------------------------------------------------
+    # Note: group must be named 'monitoring' for group_vars/monitoring.yml to load.
+    monitoring:
+      hosts:
+        monitoring-server:
+          ansible_host: <MONITORING_PUBLIC_IP>

@@ -1,0 +1,41 @@
+services:
+  loki:
+    image: grafana/loki:{{ loki_version }}
+    restart: unless-stopped
+    user: "0"
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - /opt/monitoring/loki/config.yml:/etc/loki/config.yml:ro
+      - /opt/monitoring/loki/data:/var/lib/loki
+    command: -config.file=/etc/loki/config.yml
+
+  prometheus:
+    image: prom/prometheus:v{{ prometheus_version }}
+    restart: unless-stopped
+    user: "0"
+    volumes:
+      - /opt/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/monitoring/prometheus/data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention | default('30d') }}"
+
+  grafana:
+    image: grafana/grafana:{{ grafana_version | default('latest') }}
+    restart: unless-stopped
+    user: "0"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /opt/monitoring/grafana/data:/var/lib/grafana
+      - /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_SERVER_ROOT_URL: "https://{{ grafana_domain }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      - loki
+      - prometheus

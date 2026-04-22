@@ -3,14 +3,22 @@
 # gno-validator-tools — monitoring group vars
 # Copy to group_vars/monitoring.yml and fill in your values.
 # Add group_vars/monitoring.yml to .gitignore — never commit real secrets.
+#
+# Log flow:
+#   Validator ──(private VLAN)──► Sentry (loki-proxy NGINX) ──(HTTPS)──► Monitoring (Loki)
+#
+#   loki_validator_ips : IPs allowed to push to the sentry's loki-proxy   (validator private IPs)
+#   loki_allowed_ips   : IPs allowed to push to Loki on the monitoring server (sentry public IPs)
 # =============================================================================
 
-# --- Loki version -------------------------------------------------------------
-# Binary downloaded from GitHub releases.
-# Check https://github.com/grafana/loki/releases for the latest stable version.
+# --- Stack versions -----------------------------------------------------------
+# All three services are deployed together via Docker Compose.
+# Check GitHub/Docker Hub for latest stable versions.
 loki_version: "3.4.2"
+prometheus_version: "3.1.0"
+grafana_version: "latest"
 
-# Promtail version must match Loki version.
+# Promtail version — should match loki_version.
 promtail_version: "3.4.2"
 
 # --- Loki networking ----------------------------------------------------------
@@ -20,12 +28,18 @@ loki_http_port: 3100
 # --- Loki domain and TLS ------------------------------------------------------
 # Fully qualified domain name pointing to this monitoring server.
 # A Let's Encrypt certificate will be issued for this domain.
-loki_domain: ""
-# Example: loki_domain: "mirador.example.com"
+# For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
+loki_domain: "mirador.example.com"
+# Vagrant example (nip.io — resolves to monitoring VM IP, no DNS needed):
+# loki_domain: "loki.192.168.56.12.nip.io"
+
+# Scheme used by the sentry loki-proxy to push logs to this server.
+# Use "http" for Vagrant (no TLS), "https" in production (default).
+loki_scheme: "https"
+# Vagrant example: loki_scheme: "http"
 
 # Email address for Let's Encrypt certificate registration and renewal notices.
-letsencrypt_email: ""
-# Example: letsencrypt_email: "ops@example.com"
+letsencrypt_email: "ops@example.com"
 
 # --- Authentication -----------------------------------------------------------
 # Bearer token used to authenticate log push requests to Loki.
@@ -38,30 +52,118 @@ letsencrypt_email: ""
 #   ansible-vault encrypt_string 'your-token-here' --name 'loki_bearer_token'
 #
 # Paste the encrypted block here:
-loki_bearer_token: ""
-# Example (vault-encrypted):
 # loki_bearer_token: !vault |
 #   $ANSIBLE_VAULT;1.1;AES256
 #   ...
+#
+# For Vagrant testing only (never in production):
+loki_bearer_token: "changeme"
 
-# --- IP whitelist for Loki endpoint -------------------------------------------
-# Only these IPs are allowed to push logs to /loki/ on the monitoring server.
-# Add the public IP of each sentry node.
-loki_allowed_ips: []
-# Example:
+# --- IP whitelist for Loki endpoint (monitoring server side) ------------------
+# Controls who can push logs to https://<loki_domain>/loki/ on the monitoring server.
+# Add the PUBLIC IP of each sentry node — the sentry is the one forwarding logs to Loki.
+loki_allowed_ips:
+  - "51.159.14.234"     # gno-sentry-1 production
+# Vagrant example:
 # loki_allowed_ips:
-#   - "51.159.14.234"     # gno-sentry production
-#   - "51.159.103.166"    # gno-sentry-test12
+#   - "192.168.56.11"   # gno-sentry Vagrant VM
 
 # --- IP whitelist for loki-proxy (sentry side) --------------------------------
-# Only these IPs are allowed to push through the sentry's loki-proxy.
-# Add the private VLAN IPs of all validator nodes.
-loki_validator_ips: []
-# Example:
+# Controls who can push logs to the sentry's loki-proxy (port 80, private VLAN).
+# Add the PRIVATE VLAN IP of each validator node — validators push to the sentry proxy,
+# which injects the Bearer token and forwards to Loki. Validators never hold the token.
+loki_validator_ips:
+  - "172.16.12.2"       # gno-validator-1 production
+# Vagrant example:
 # loki_validator_ips:
-#   - "172.16.12.2"       # gno-validator-1
-#   - "172.16.12.3"       # gno-validator-2
+#   - "192.168.56.10"   # gno-validator Vagrant VM
 
 # --- Loki retention -----------------------------------------------------------
 # How long to keep logs (in hours). Default: 1440h = 60 days.
 loki_retention_hours: 1440
+
+# =============================================================================
+# Grafana (8-deploy-grafana.yaml)
+# =============================================================================
+
+# --- Grafana version ----------------------------------------------------------
+# Docker image tag. Use a pinned version in production.
+# Check https://hub.docker.com/r/grafana/grafana/tags for latest stable.
+grafana_version: "latest"
+
+# --- Grafana domain and TLS ---------------------------------------------------
+# Fully qualified domain name pointing to this monitoring server.
+# A Let's Encrypt certificate will be issued for this domain.
+# For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
+grafana_domain: "grafana.example.com"
+# Vagrant example (nip.io — resolves to monitoring VM IP, no DNS needed):
+# grafana_domain: "grafana.192.168.56.12.nip.io"
+
+# --- Grafana admin password ---------------------------------------------------
+# Password for the built-in 'admin' account.
+#
+# WARNING: Never store this value in plaintext in a file committed to git.
+# Encrypt it with ansible-vault:
+#   ansible-vault encrypt_string 'your-password' --name 'grafana_admin_password'
+#
+# For Vagrant testing only (never in production):
+grafana_admin_password: "changeme"
+
+# =============================================================================
+# Prometheus (9-deploy-prometheus.yaml)
+# =============================================================================
+
+# --- Prometheus version -------------------------------------------------------
+# Binary downloaded from GitHub releases.
+# Check https://github.com/prometheus/prometheus/releases for the latest stable.
+prometheus_version: "3.1.0"
+
+# --- Prometheus port ----------------------------------------------------------
+# Prometheus listens locally only — reached by Grafana via host.docker.internal.
+prometheus_http_port: 9090
+
+# --- Retention ----------------------------------------------------------------
+prometheus_retention: "30d"
+
+# --- Scrape jobs --------------------------------------------------------------
+# One entry per target. Add a new job for each additional validator proxy.
+# Targets use the sentry's PUBLIC IP — the sentry proxies validator metrics.
+prometheus_scrape_jobs:
+  - job_name: node_exporter_sentry
+    targets: ["<SENTRY_PUBLIC_IP>:9100"]
+    labels:
+      node: sentry
+
+  - job_name: nginx_exporter_sentry
+    targets: ["<SENTRY_PUBLIC_IP>:9113"]
+    labels:
+      node: sentry
+
+  - job_name: node_exporter_validator_1
+    targets: ["<SENTRY_PUBLIC_IP>:9200"]
+    labels:
+      node: validator-1
+
+  - job_name: otel_validator_1
+    targets: ["<SENTRY_PUBLIC_IP>:9464"]
+    labels:
+      node: validator-1
+
+# Vagrant example:
+# prometheus_scrape_jobs:
+#   - job_name: node_exporter_sentry
+#     targets: ["192.168.56.11:9100"]
+#     labels:
+#       node: sentry
+#   - job_name: nginx_exporter_sentry
+#     targets: ["192.168.56.11:9113"]
+#     labels:
+#       node: sentry
+#   - job_name: node_exporter_validator_1
+#     targets: ["192.168.56.11:9200"]
+#     labels:
+#       node: validator-1
+#   - job_name: otel_validator_1
+#     targets: ["192.168.56.11:9464"]
+#     labels:
+#       node: validator-1

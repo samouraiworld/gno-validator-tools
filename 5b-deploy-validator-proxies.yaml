@@ -1,0 +1,129 @@
+---
+# =============================================================================
+# Deploy validator metric proxies on sentry
+#
+# The sentry acts as a relay so the monitoring server can scrape validator
+# metrics without direct access to the validator (private VLAN only).
+#
+# For each validator in validator_proxies:
+#   - NGINX vhost: sentry:<node_exporter_port> → validator:<9100>
+#   - NGINX vhost: sentry:<otel_port>          → validator:<9464>
+#   - UFW rules: allow monitoring IP → proxy ports
+#
+# Prerequisites:
+#   - NGINX installed on sentry (run 1-base_setup.yml with install_nginx=true first)
+#   - validator_proxies defined on gno-sentry in inventory (see inventory.yaml.example)
+#   - ufw_allow_ip defined on gno-sentry (monitoring server IP)
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml
+#
+#   # Vagrant
+#   ansible-playbook -i inventory-vagrant.yaml 5b-deploy-validator-proxies.yaml
+#
+#   # Redeploy NGINX vhosts only (skip UFW)
+#   ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml --tags nginx
+#
+#   # Update UFW rules only
+#   ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml --tags ufw
+# =============================================================================
+
+- name: Deploy validator metric proxies on sentry
+  hosts: gno-sentry
+  become: false
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    # --- node_exporter proxy vhosts -------------------------------------------
+    - name: Deploy node_exporter proxy vhost for each validator
+      ansible.builtin.template:
+        src: Loki/templates/nginx-validator-proxy.conf.j2
+        dest: /etc/nginx/sites-available/validator-{{ item.name }}-node-exporter
+        mode: "0644"
+      vars:
+        proxy_listen_port: "{{ item.node_exporter_port }}"
+        proxy_upstream_ip: "{{ item.private_ip }}"
+        proxy_upstream_port: 9100
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }} node_exporter :{{ item.node_exporter_port }}"
+      notify: Reload nginx
+      tags: [nginx]
+
+    - name: Enable node_exporter proxy vhost for each validator
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/validator-{{ item.name }}-node-exporter
+        dest: /etc/nginx/sites-enabled/validator-{{ item.name }}-node-exporter
+        state: link
+        force: true
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: Reload nginx
+      tags: [nginx]
+
+    # --- OTEL proxy vhosts ----------------------------------------------------
+    - name: Deploy OTEL proxy vhost for each validator
+      ansible.builtin.template:
+        src: Loki/templates/nginx-validator-proxy.conf.j2
+        dest: /etc/nginx/sites-available/validator-{{ item.name }}-otel
+        mode: "0644"
+      vars:
+        proxy_listen_port: "{{ item.otel_port }}"
+        proxy_upstream_ip: "{{ item.private_ip }}"
+        proxy_upstream_port: 9464
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }} otel :{{ item.otel_port }}"
+      notify: Reload nginx
+      tags: [nginx]
+
+    - name: Enable OTEL proxy vhost for each validator
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/validator-{{ item.name }}-otel
+        dest: /etc/nginx/sites-enabled/validator-{{ item.name }}-otel
+        state: link
+        force: true
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: Reload nginx
+      tags: [nginx]
+
+    # --- NGINX validation -----------------------------------------------------
+    - name: Validate NGINX configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      tags: [nginx]
+
+    - name: Force NGINX reload
+      ansible.builtin.meta: flush_handlers
+      tags: [nginx]
+
+    # --- UFW rules ------------------------------------------------------------
+    - name: Allow node_exporter proxy port from monitoring server
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ ufw_allow_ip }}"
+        to_port: "{{ item.node_exporter_port | string }}"
+        proto: tcp
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }} :{{ item.node_exporter_port }}"
+      tags: [ufw]
+
+    - name: Allow OTEL proxy port from monitoring server
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ ufw_allow_ip }}"
+        to_port: "{{ item.otel_port | string }}"
+        proto: tcp
+      loop: "{{ validator_proxies }}"
+      loop_control:
+        label: "{{ item.name }} :{{ item.otel_port }}"
+      tags: [ufw]

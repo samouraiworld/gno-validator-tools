@@ -19,7 +19,8 @@
     rule: allow
     port: "{{ item }}"
     proto: tcp
-  loop: "{{ ufw_ports_app}}"
+  loop: "{{ ufw_ports_app }}"
+  when: ufw_ports_app is defined and ufw_ports_app | length > 0
 
 - name: Allow ports from monitoring server
   ufw:

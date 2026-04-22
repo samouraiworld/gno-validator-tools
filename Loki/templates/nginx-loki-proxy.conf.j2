@@ -10,7 +10,7 @@ server {
         deny all;
 
         # Forward to Loki on monitoring server, inject Bearer token
-        proxy_pass https://{{ loki_domain }};
+        proxy_pass {{ loki_scheme | default('https') }}://{{ loki_domain }};
         proxy_set_header Host {{ loki_domain }};
         proxy_set_header Authorization "Bearer {{ loki_bearer_token }}";
 

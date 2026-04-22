@@ -1,0 +1,102 @@
+---
+# =============================================================================
+# Install sentry node
+#
+# Prérequis : gnoland secrets init a été exécuté manuellement sur le sentry.
+# ansible-playbook -i inventory.yaml 2-install-sentry-node.yml
+#
+# Tags disponibles :
+#   [config]   — répertoire, fichiers de config, génèse
+#   [docker]   — pull de l'image Docker
+#   [compose]  — démarrage du stack via docker compose
+# =============================================================================
+
+- name: Install sentry node
+  hosts: gno-sentry
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+    gno_image: ghcr.io/gnolang/gno/gnoland:chain-test11
+    moniker_sentry: samourai-dev-sentry-1
+    seeds: ""
+    private_peer_ids: ""
+    validator_p2p_ip: ""
+    genesis_url: "https://gno-testnets-genesis.s3.eu-central-1.amazonaws.com/test11/genesis.json"
+    config_url: "https://raw.githubusercontent.com/gnolang/gno/refs/heads/master/misc/deployments/test11.gno.land/config.toml"
+
+  tasks:
+
+    # --- Validation des prérequis --------------------------------------------
+    - name: Check that validator secrets have been generated
+      ansible.builtin.assert:
+        that:
+          - private_peer_ids | length > 0
+          - validator_p2p_ip | length > 0
+        fail_msg: |
+          ERROR: private_peer_ids ou validator_p2p_ip est vide.
+          Tu dois d'abord générer les secrets du validator :
+            ssh root@<validator-ip>
+            gnoland secrets init
+            gnoland secrets get   # → récupérer le node_id
+          Puis relancer avec :
+            -e private_peer_ids=<node_id> -e validator_p2p_ip=<validator-ip>
+      tags: [config]
+
+    # --- Répertoire de travail ------------------------------------------------
+    - name: Create gnoland working directory on sentry
+      ansible.builtin.file:
+        path: /root/{{ gno_dir }}
+        state: directory
+        mode: "0750"
+      tags: [config]
+
+    # --- Téléchargement de genesis.json et config.toml sur le sentry ---------
+    - name: Download genesis.json on sentry
+      ansible.builtin.get_url:
+        url: "{{ genesis_url }}"
+        dest: /root/{{ gno_dir }}/genesis.json
+        mode: "0644"
+      tags: [config]
+
+    - name: Download config.toml on sentry
+      ansible.builtin.get_url:
+        url: "{{ config_url }}"
+        dest: /root/{{ gno_dir }}/config.toml
+        mode: "0644"
+      tags: [config]
+
+    # --- Copie des fichiers locaux vers le sentry ----------------------------
+    - name: Copy entrypoint.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/entrypoint.sh"
+        dest: /root/{{ gno_dir }}/entrypoint.sh
+        mode: "0755"
+      tags: [config]
+
+    - name: Copy check_status.sh to sentry
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/validator/check_status.sh"
+        dest: /root/check_status.sh
+        mode: "0755"
+      tags: [config]
+
+    # --- Génération du docker-compose.yml ------------------------------------
+    - name: Render docker-sentry.yml.j2 to docker-compose.yml on sentry
+      ansible.builtin.template:
+        src: templates/docker-sentry.yml.j2
+        dest: /root/{{ gno_dir }}/docker-compose.yml
+        mode: "0640"
+      tags: [config]
+
+    # --- Images Docker --------------------------------------------------------
+    - name: Pull gno image on sentry
+      ansible.builtin.command: docker pull {{ gno_image }}
+      tags: [docker]
+
+    # --- Démarrage du stack --------------------------------------------------
+    - name: Start sentry via docker compose
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: /root/{{ gno_dir }}
+      tags: [compose]
