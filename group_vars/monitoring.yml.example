@@ -30,7 +30,8 @@ loki_http_port: 3100
 # A Let's Encrypt certificate will be issued for this domain.
 # For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
 loki_domain: "mirador.example.com"
-# Vagrant example: loki_domain: "192.168.56.12"
+# Vagrant example (nip.io — resolves to monitoring VM IP, no DNS needed):
+# loki_domain: "loki.192.168.56.12.nip.io"
 
 # Scheme used by the sentry loki-proxy to push logs to this server.
 # Use "http" for Vagrant (no TLS), "https" in production (default).
@@ -95,7 +96,8 @@ grafana_version: "latest"
 # A Let's Encrypt certificate will be issued for this domain.
 # For Vagrant testing (no real domain), set this to the VM IP and use --skip-tags tls.
 grafana_domain: "grafana.example.com"
-# Vagrant example: grafana_domain: "192.168.56.12"
+# Vagrant example (nip.io — resolves to monitoring VM IP, no DNS needed):
+# grafana_domain: "grafana.192.168.56.12.nip.io"
 
 # --- Grafana admin password ---------------------------------------------------
 # Password for the built-in 'admin' account.
