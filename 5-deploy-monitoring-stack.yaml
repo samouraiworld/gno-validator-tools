@@ -1,0 +1,311 @@
+---
+# =============================================================================
+# Deploy monitoring stack (Loki + Prometheus + Grafana) on monitoring server
+#
+# All three services run in a single Docker Compose on the monitoring server.
+# Grafana datasources (Loki, Prometheus) are provisioned automatically.
+#
+# Log flow:
+#   Validator ──(private VLAN)──► Sentry (loki-proxy) ──(HTTPS+token)──► Loki
+#
+# Metrics flow:
+#   Prometheus ──► Sentry:9100  (sentry node_exporter)
+#   Prometheus ──► Sentry:9113  (sentry nginx_exporter)
+#   Prometheus ──► Sentry:9200  (validator-1 node_exporter via sentry proxy)
+#   Prometheus ──► Sentry:9464  (validator-1 OTEL via sentry proxy)
+#
+# Prerequisites:
+#   - Docker installed automatically (docker role)
+#   - NGINX installed automatically (nginx role)
+#   - group_vars/monitoring.yml configured (copy from monitoring.yml.example)
+#
+# Note (Vagrant): the monitoring host is in group 'monitoring_servers', not 'monitoring'.
+#   Pass the target explicitly and load group_vars manually:
+#     ansible-playbook -i inventory-vagrant.yaml 5-deploy-monitoring-stack.yaml \
+#       -e target=gno-monitoring-test \
+#       -e @group_vars/monitoring.yml \
+#       --skip-tags tls
+#
+# Usage:
+#   # Production — full deploy with TLS
+#   ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
+#     -e @group_vars/monitoring.yml
+#
+#   # Vagrant — HTTP only
+#   ansible-playbook -i inventory-vagrant.yaml 5-deploy-monitoring-stack.yaml \
+#     -e target=gno-monitoring-test \
+#     -e @group_vars/monitoring.yml \
+#     --skip-tags tls
+#
+#   # Restart stack only
+#   ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags stack
+#
+#   # Update scrape config only
+#   ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags config
+#
+#   # Redeploy sentry proxy only
+#   ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
+#     -e @group_vars/monitoring.yml \
+#     --tags proxy
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# PLAY 1 — Monitoring stack on monitoring server
+# ---------------------------------------------------------------------------
+- name: Deploy monitoring stack on monitoring server
+  hosts: "{{ target | default('monitoring') }}"
+  become: false
+
+  roles:
+    - docker
+    - nginx
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+    - name: Restart stack
+      ansible.builtin.command:
+        cmd: docker compose restart
+        chdir: /opt/monitoring
+
+  tasks:
+    # --- Directories ----------------------------------------------------------
+    - name: Create monitoring stack directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /opt/monitoring
+        - /opt/monitoring/loki/data
+        - /opt/monitoring/prometheus/data
+        - /opt/monitoring/grafana/data
+        - /opt/monitoring/grafana/provisioning
+        - /opt/monitoring/grafana/provisioning/datasources
+      tags: [stack, config]
+
+    # --- Configs --------------------------------------------------------------
+    - name: Deploy Loki configuration
+      ansible.builtin.template:
+        src: Loki/templates/loki-config.yml.j2
+        dest: /opt/monitoring/loki/config.yml
+        mode: "0644"
+      notify: Restart stack
+      tags: [stack, config]
+
+    - name: Deploy Prometheus configuration
+      ansible.builtin.template:
+        src: Loki/templates/prometheus-config.yml.j2
+        dest: /opt/monitoring/prometheus/prometheus.yml
+        mode: "0644"
+      notify: Restart stack
+      tags: [stack, config]
+
+    - name: Deploy Grafana Loki datasource provisioning
+      ansible.builtin.template:
+        src: Loki/templates/grafana-loki-datasource.yml.j2
+        dest: /opt/monitoring/grafana/provisioning/datasources/loki.yml
+        mode: "0644"
+      notify: Restart stack
+      tags: [stack, config]
+
+    - name: Deploy Grafana Prometheus datasource provisioning
+      ansible.builtin.template:
+        src: Loki/templates/grafana-prometheus-datasource.yml.j2
+        dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
+        mode: "0644"
+      notify: Restart stack
+      tags: [stack, config]
+
+    # --- Docker Compose -------------------------------------------------------
+    - name: Deploy Docker Compose file
+      ansible.builtin.template:
+        src: Loki/templates/docker-monitoring-stack.yml.j2
+        dest: /opt/monitoring/docker-compose.yml
+        mode: "0640"
+      notify: Restart stack
+      tags: [stack]
+
+    - name: Pull images
+      ansible.builtin.command:
+        cmd: docker compose pull
+        chdir: /opt/monitoring
+      changed_when: false
+      tags: [stack]
+
+    - name: Start monitoring stack
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: /opt/monitoring
+      tags: [stack]
+
+    # --- NGINX vhost Loki (HTTP — certbot challenge + sentry push via HTTP) ---
+    - name: Deploy Loki NGINX vhost (HTTP)
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/{{ loki_domain }}
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              server_name {{ loki_domain }};
+              location / { return 200 'ok'; }
+          }
+      notify: Reload nginx
+      tags: [tls]
+
+    - name: Enable Loki NGINX vhost
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/{{ loki_domain }}
+        dest: /etc/nginx/sites-enabled/{{ loki_domain }}
+        state: link
+        force: true
+      notify: Reload nginx
+      tags: [tls]
+
+    # --- NGINX vhost Grafana (HTTP — works for Vagrant + certbot challenge) ---
+    - name: Deploy Grafana NGINX vhost (HTTP)
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/{{ grafana_domain }}
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              server_name {{ grafana_domain }};
+
+              location / {
+                  proxy_pass http://127.0.0.1:3000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+              }
+          }
+      notify: Reload nginx
+      tags: [grafana]
+
+    - name: Enable Grafana NGINX vhost
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/{{ grafana_domain }}
+        dest: /etc/nginx/sites-enabled/{{ grafana_domain }}
+        state: link
+        force: true
+      notify: Reload nginx
+      tags: [grafana]
+
+    - name: Validate NGINX configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      tags: [grafana, tls]
+
+    - name: Force NGINX reload before requesting certificates
+      ansible.builtin.meta: flush_handlers
+      tags: [grafana, tls]
+
+    # --- Let's Encrypt — Loki -------------------------------------------------
+    - name: Check if Loki TLS certificate exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ loki_domain }}/fullchain.pem
+      register: loki_cert_stat
+      tags: [tls]
+
+    - name: Request Let's Encrypt certificate for Loki
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly --nginx
+          -d {{ loki_domain }}
+          --non-interactive
+          --agree-tos
+          --email {{ letsencrypt_email }}
+      when: not loki_cert_stat.stat.exists
+      tags: [tls]
+
+    - name: Deploy Loki NGINX vhost with TLS
+      ansible.builtin.template:
+        src: Loki/templates/nginx-loki-monitoring.conf.j2
+        dest: /etc/nginx/sites-available/{{ loki_domain }}
+        mode: "0644"
+      notify: Reload nginx
+      tags: [tls]
+
+    # --- Let's Encrypt — Grafana ----------------------------------------------
+    - name: Check if Grafana TLS certificate exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ grafana_domain }}/fullchain.pem
+      register: grafana_cert_stat
+      tags: [tls]
+
+    - name: Request Let's Encrypt certificate for Grafana
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly --nginx
+          -d {{ grafana_domain }}
+          --non-interactive
+          --agree-tos
+          --email {{ letsencrypt_email }}
+      when: not grafana_cert_stat.stat.exists
+      tags: [tls]
+
+    - name: Deploy Grafana NGINX vhost with TLS
+      ansible.builtin.template:
+        src: Loki/templates/nginx-grafana.conf.j2
+        dest: /etc/nginx/sites-available/{{ grafana_domain }}
+        mode: "0644"
+      notify: Reload nginx
+      tags: [tls]
+
+    - name: Validate NGINX configuration (TLS vhosts)
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      tags: [tls]
+
+    - name: Force NGINX reload with TLS vhosts
+      ansible.builtin.meta: flush_handlers
+      tags: [tls]
+
+# ---------------------------------------------------------------------------
+# PLAY 2 — loki-proxy relay on sentry
+# ---------------------------------------------------------------------------
+- name: Deploy loki-proxy on sentry
+  hosts: gno-sentry
+  become: false
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Deploy loki-proxy NGINX vhost
+      ansible.builtin.template:
+        src: Loki/templates/nginx-loki-proxy.conf.j2
+        dest: /etc/nginx/sites-available/loki-proxy
+        mode: "0644"
+      notify: Reload nginx
+      tags: [proxy]
+
+    - name: Enable loki-proxy NGINX vhost
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/loki-proxy
+        dest: /etc/nginx/sites-enabled/loki-proxy
+        state: link
+        force: true
+      notify: Reload nginx
+      tags: [proxy]
+
+    - name: Validate NGINX configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      tags: [proxy]
+
+    - name: Force NGINX reload
+      ansible.builtin.meta: flush_handlers
+      tags: [proxy]
