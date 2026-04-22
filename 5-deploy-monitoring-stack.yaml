@@ -147,19 +147,14 @@
         chdir: /opt/monitoring
       tags: [stack]
 
-    # --- NGINX vhost Loki (HTTP — certbot challenge + sentry push via HTTP) ---
+    # --- NGINX vhost Loki (HTTP — always deployed, works for Vagrant + certbot challenge) ---
     - name: Deploy Loki NGINX vhost (HTTP)
-      ansible.builtin.copy:
+      ansible.builtin.template:
+        src: Loki/templates/nginx-loki-http.conf.j2
         dest: /etc/nginx/sites-available/{{ loki_domain }}
         mode: "0644"
-        content: |
-          server {
-              listen 80;
-              server_name {{ loki_domain }};
-              location / { return 200 'ok'; }
-          }
       notify: Reload nginx
-      tags: [tls]
+      tags: [loki]
 
     - name: Enable Loki NGINX vhost
       ansible.builtin.file:
@@ -168,7 +163,7 @@
         state: link
         force: true
       notify: Reload nginx
-      tags: [tls]
+      tags: [loki]
 
     # --- NGINX vhost Grafana (HTTP — works for Vagrant + certbot challenge) ---
     - name: Deploy Grafana NGINX vhost (HTTP)
