@@ -61,6 +61,7 @@
   become: false
 
   roles:
+    - base_setup
     - docker
     - nginx
 
