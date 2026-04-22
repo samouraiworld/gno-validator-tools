@@ -11,12 +11,14 @@
 #   loki_allowed_ips   : IPs allowed to push to Loki on the monitoring server (sentry public IPs)
 # =============================================================================
 
-# --- Loki version -------------------------------------------------------------
-# Binary downloaded from GitHub releases.
-# Check https://github.com/grafana/loki/releases for the latest stable version.
+# --- Stack versions -----------------------------------------------------------
+# All three services are deployed together via Docker Compose.
+# Check GitHub/Docker Hub for latest stable versions.
 loki_version: "3.4.2"
+prometheus_version: "3.1.0"
+grafana_version: "latest"
 
-# Promtail version must match Loki version.
+# Promtail version — should match loki_version.
 promtail_version: "3.4.2"
 
 # --- Loki networking ----------------------------------------------------------
