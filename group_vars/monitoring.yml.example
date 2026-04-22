@@ -32,6 +32,11 @@ loki_http_port: 3100
 loki_domain: "mirador.example.com"
 # Vagrant example: loki_domain: "192.168.56.12"
 
+# Scheme used by the sentry loki-proxy to push logs to this server.
+# Use "http" for Vagrant (no TLS), "https" in production (default).
+loki_scheme: "https"
+# Vagrant example: loki_scheme: "http"
+
 # Email address for Let's Encrypt certificate registration and renewal notices.
 letsencrypt_email: "ops@example.com"
 
