@@ -67,9 +67,17 @@
         mode: "0755"
       loop:
         - /opt/grafana
-        - /opt/grafana/data
         - /opt/grafana/provisioning
         - /opt/grafana/provisioning/datasources
+      tags: [grafana]
+
+    - name: Create Grafana data directory owned by UID 472 (grafana container user)
+      ansible.builtin.file:
+        path: /opt/grafana/data
+        state: directory
+        owner: "472"
+        group: "472"
+        mode: "0755"
       tags: [grafana]
 
     # --- Docker Compose -------------------------------------------------------
