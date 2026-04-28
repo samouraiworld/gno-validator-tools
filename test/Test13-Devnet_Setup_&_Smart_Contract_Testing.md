@@ -1,4 +1,4 @@
-# Samourai-Crew Guide: Deploying Smart Contracts on Gno.land (Full Setup)
+#  DOCS: Test13 Devnet Setup & Smart Contract Testing on [Gno.land](http://Gno.land) (LOURS)
 
 This guide explains how to properly set up a local Gno infrastructure with a validator + sentry architecture.
 
@@ -39,6 +39,8 @@ gnogenesis generate
 
 ```bash
 gnogenesis balances add -balance-sheet ./genesis_balances.txt
+gnogenesis txs add sheets ./../gno/gno.land/genesis/genesis_txs.jsonl
+
 ```
 ### Create User Key
 
@@ -153,7 +155,7 @@ Use `addpkg` to send the code to the blockchain.
 
 ```bash
 gnokey maketx addpkg \
-    -pkgpath "gno.land/r/test13/v3/counter" \
+    -pkgpath "gno.land/r/test13/v1/counter" \
     -pkgdir "." \
     -gas-fee 1000000ugnot \
     -gas-wanted 5000000 \

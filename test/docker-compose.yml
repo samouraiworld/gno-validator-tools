@@ -3,6 +3,8 @@ services:
     image: "gno-validator:test13"
 #    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
     restart: on-failure
+    ports:
+      - 127.0.0.1:26658:26657
     volumes:
       - ./validator/entrypoint.sh:/entrypoint.sh:ro
       - ./validator/config.toml:/gnoroot/config.toml:ro
@@ -11,6 +13,23 @@ services:
     entrypoint: /entrypoint.sh
     environment:
       MONIKER: "samourai-crew-1"
+      PERSISTENT_PEERS: "g1uqc6vrfssdfph85qh8jgz9ymchxml2r9g9f2n2@sentry:26656"
+      PEX: "false"
+
+  validator2:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26659:26657
+    volumes:
+      - ./validator2/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator2/config.toml:/gnoroot/config.toml:ro
+      - ./validator2/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator2/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-2"
       PERSISTENT_PEERS: "g1uqc6vrfssdfph85qh8jgz9ymchxml2r9g9f2n2@sentry:26656"
       PEX: "false"
 

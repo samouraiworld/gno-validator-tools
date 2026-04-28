@@ -6,7 +6,7 @@ echo "🧬 Generating genesis..."
 
 GENESIS_FILE="genesis.json"
 BALANCE_FILE="genesis_balances.txt"
-
+GNO_REPOS="/root/gno/examples/gno.land"
 # ============================================
 # 🔧 Validators configuration
 # Format: "ADDRESS|PUBKEY|NAME"
@@ -68,6 +68,20 @@ fi
 echo "💰 Adding balances..."
 gnogenesis balances add -balance-sheet "$BALANCE_FILE"
 
+
+# ============================================
+# 📦 Add Packages
+# ============================================
+
+if [ ! -d "$GNO_REPOS" ]; then
+  echo "❌ GNO_REPOS directory not found: $GNO_REPOS"
+  exit 1
+fi
+
+echo "📦 Adding packages from $GNO_REPOS..."
+gnogenesis txs add packages \
+  -genesis-path "$GENESIS_FILE" \
+  "$GNO_REPOS"
 # ============================================
 # 🔓 Set params
 # ============================================
@@ -78,3 +92,4 @@ gnogenesis params set auth.unrestricted_addrs \
   -genesis-path "$GENESIS_FILE"
 
 echo "✅ Genesis successfully generated!"
+
