@@ -1,0 +1,45 @@
+services:
+  validator:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    volumes:
+      - ./validator/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator/config.toml:/gnoroot/config.toml:ro
+      - ./validator/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-1"
+      PERSISTENT_PEERS: "g1uqc6vrfssdfph85qh8jgz9ymchxml2r9g9f2n2@sentry:26656"
+      PEX: "false"
+
+  sentry:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    ports:
+      - 26656:26656
+      - 127.0.0.1:26657:26657
+    volumes:
+      - ./sentry/entrypoint.sh:/entrypoint.sh:ro
+      - ./sentry/config.toml:/gnoroot/config.toml:ro
+      - ./sentry/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./sentry/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-dev-sentry-1"
+      SEEDS: "g1vgvqg94xy8qj23dc8zpw6wns7q0hj9g8mx03ha@gno-core-sen-01.test11.testnets.gno.land:26656"
+      PERSISTENT_PEERS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747@validator:26656,g1vgvqg94xy8qj23dc8zpw6wns7q0hj9g8mx03ha@gno-core-sen-01.test11.testnets.gno.land:26656"
+      PRIVATE_PEER_IDS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: on-failure
+    container_name: otel-collector
+    volumes:
+      - ./otel/otel-config.yaml:/etc/otel/config.yaml
+    command: [ "--config=/etc/otel/config.yaml" ]
+    ports:
+      - 9464:9464 # for Prometheus
+      - 127.0.0.1:4317:4317 # for Gnoland
