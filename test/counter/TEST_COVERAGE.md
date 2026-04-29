@@ -58,6 +58,21 @@ by the counter. This is a Gno security invariant, not a bug.
 
 ---
 
+### ✅ PATCHED — `audit_array_alias.sh` (`c64feef1d`)
+
+**What was tested:** A realm stores a `[3]int` array. A transaction calls
+`ModifyLocalCopy()` which does `local := arr; local[0] = 999`. The next query
+reads `arr[0]` via `Render()`.
+
+**Observed:** `arr[0]` returned `0` — the original array was unchanged.
+
+**What this means:** The fix `c64feef1d` is present in the binary. `ArrayValue.Copy()`
+creates a genuine deep copy with independent backing memory. Without this fix,
+`local` and `arr` would have shared the same pointer, so `local[0] = 999` would
+have silently corrupted the stored array to `999`.
+
+---
+
 ### ❌ VULNERABLE — `audit_cross_realm_recover.sh` (`f87249327`)
 
 **What was tested:** A realm stores an int in a struct (`holder.value`). A transaction
@@ -94,7 +109,7 @@ producing blocks normally — there is no crash or observable anomaly.
 | `6a6fc4c71` | uint64 overflow at compile time (NEWTENDG-164) | ✅ | `audit_security.sh` test 1 |
 | `a3a356e71` | `bs[i] = v` byte-slice mutation dropped (NEWTENDG-98) | ✅ PATCHED | `audit_byteslice.sh` |
 | `f87249327` | Cross-realm state corruption via panic + recover | ❌ VULNERABLE | `audit_cross_realm_recover.sh` |
-| `c64feef1d` | Array aliasing in ArrayValue.Copy | Not run yet | `audit_array_alias.sh` |
+| `c64feef1d` | Array aliasing in ArrayValue.Copy | ✅ PATCHED | `audit_array_alias.sh` |
 | `786f06ba2` | Nil checks for block/meta retrievals | Not tested | — |
 | `e72b47960` | RPC index out of bounds panic | Not tested | — |
 | `8d17f08e3` | Peer stall when peer lowers announced height | Not tested | — |
@@ -117,7 +132,7 @@ producing blocks normally — there is no crash or observable anomaly.
 
 | Status | Count | Details |
 | --- | --- | --- |
-| ✅ Patched | 3 | `6a6fc4c71`, `3be0408f0`, `a3a356e71` |
+| ✅ Patched | 4 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d` |
 | ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
 | Not run yet | 6 | hardfork-audit scripts written, not executed |
 | Not tested | ~15 | Network-level and RPC fixes, no local script |
