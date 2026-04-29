@@ -123,7 +123,7 @@ producing blocks normally — there is no crash or observable anomaly.
 | `4bcd9828e` | `chan` type accepted at deploy then panics at runtime | ✅ PATCHED | `audit_chan_type.sh` |
 | `d27fdaff5` | `AssertOriginCall` rejected valid cross-realm closures | Not tested | — |
 | `e6da9024a` | Allocation bug triggered on node restart/restore | Partial | `e2e_crash_recovery.sh` |
-| `5d5f9213f` | Per-byte gas for mem allocation | Not run yet | `audit_gas_alloc.sh` |
+| `5d5f9213f` | Per-byte gas for mem allocation | ✅ PATCHED | `audit_gas_alloc.sh` |
 | `81d9f806c` | `Coins.AmountOf` silently returns first on duplicate denom | Not tested | — |
 
 ---
@@ -132,7 +132,7 @@ producing blocks normally — there is no crash or observable anomaly.
 
 | Status | Count | Details |
 | --- | --- | --- |
-| ✅ Patched | 5 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e` |
+| ✅ Patched | 6 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f` |
 | ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
 | Not run yet | 6 | hardfork-audit scripts written, not executed |
 | Not tested | ~15 | Network-level and RPC fixes, no local script |

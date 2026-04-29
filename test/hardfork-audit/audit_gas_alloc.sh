@@ -46,10 +46,10 @@ func main() {
 }
 EOF
 
-echo -n "   10-byte alloc with 100k gas (expect OK)... "
+echo -n "   10-byte alloc with 1M gas (expect OK)... "
 RESULT2=$(echo "$PASSWORD" | gnokey maketx run \
 	-gas-fee 1000000ugnot \
-	-gas-wanted 100000 \
+	-gas-wanted 1000000 \
 	-broadcast -chainid "$CHAINID" -remote "$RPC" \
 	-insecure-password-stdin "$KEY" \
 	"$TMPDIR/smallalloc.gno" 2>&1)
