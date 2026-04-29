@@ -105,7 +105,7 @@ producing blocks normally — there is no crash or observable anomaly.
 | `b56b78f1e` | Byzantine peer gossips scrambled block parts | Not tested | — |
 | `f7a23f1ea` | Block header parts too big (NEWTENDG-159) | Not tested | — |
 | `3be0408f0` | Stack-overflow exploit — iterative recovery (NEWTENDG-182) | ✅ | `audit_security.sh` test 2 |
-| `50ee56e64` | Variable initialisation order (NEWTENDG-68) | Not run yet | `audit_var_init_order.sh` |
+| `50ee56e64` | Variable initialisation order (NEWTENDG-68) | ✅ PATCHED | `audit_var_init_order.sh` |
 | `6a6fc4c71` | uint64 overflow at compile time (NEWTENDG-164) | ✅ | `audit_security.sh` test 1 |
 | `a3a356e71` | `bs[i] = v` byte-slice mutation dropped (NEWTENDG-98) | ✅ PATCHED | `audit_byteslice.sh` |
 | `f87249327` | Cross-realm state corruption via panic + recover | ❌ VULNERABLE | `audit_cross_realm_recover.sh` |
@@ -132,7 +132,7 @@ producing blocks normally — there is no crash or observable anomaly.
 
 | Status | Count | Details |
 | --- | --- | --- |
-| ✅ Patched | 7 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808` |
+| ✅ Patched | 8 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808`, `50ee56e64` |
 | ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
 | Not run yet | 6 | hardfork-audit scripts written, not executed |
 | Not tested | ~15 | Network-level and RPC fixes, no local script |
