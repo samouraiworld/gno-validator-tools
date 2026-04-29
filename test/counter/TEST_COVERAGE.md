@@ -32,7 +32,7 @@ Scripts in `test/hardfork-audit/` target specific hardfork fixes.
 | `audit_runtime_pkg.sh` | `afd7e4808` | `runtime` import rejected in production VM |
 | `audit_var_init_order.sh` | NEWTENDG-68 `50ee56e64` | Package-level var init in dependency order |
 | `audit_gas_alloc.sh` | `5d5f9213f` | Per-byte gas model for large memory allocations |
-| `e2e_nonce_replay.sh` | general | Replay protection via sequence number enforcement |
+| `e2e_nonce_replay.sh` | general | Replay protection via sequence number enforcement — ✅ all 3 validators rejected replay |
 
 ---
 
@@ -134,5 +134,5 @@ producing blocks normally — there is no crash or observable anomaly.
 | --- | --- | --- |
 | ✅ Patched | 8 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808`, `50ee56e64` |
 | ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
-| Not run yet | 6 | hardfork-audit scripts written, not executed |
+| Not run yet | 0 | all hardfork-audit scripts executed |
 | Not tested | ~15 | Network-level and RPC fixes, no local script |
