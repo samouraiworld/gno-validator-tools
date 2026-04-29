@@ -113,7 +113,7 @@ producing blocks normally — there is no crash or observable anomaly.
 | `786f06ba2` | Nil checks for block/meta retrievals | Not tested | — |
 | `e72b47960` | RPC index out of bounds panic | Not tested | — |
 | `8d17f08e3` | Peer stall when peer lowers announced height | Not tested | — |
-| `afd7e4808` | `runtime` stdlib removed from production | Not run yet | `audit_runtime_pkg.sh` |
+| `afd7e4808` | `runtime` stdlib removed from production | ✅ PATCHED | `audit_runtime_pkg.sh` |
 
 ### Tier 2 — VM correctness
 
@@ -132,7 +132,7 @@ producing blocks normally — there is no crash or observable anomaly.
 
 | Status | Count | Details |
 | --- | --- | --- |
-| ✅ Patched | 6 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f` |
+| ✅ Patched | 7 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808` |
 | ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
 | Not run yet | 6 | hardfork-audit scripts written, not executed |
 | Not tested | ~15 | Network-level and RPC fixes, no local script |
