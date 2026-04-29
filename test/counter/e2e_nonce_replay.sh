@@ -35,7 +35,7 @@ else
 fi
 
 # Get the sequence that was just used by querying the account
-ADDR=$(echo "$PASSWORD" | gnokey list 2>/dev/null | grep -oE 'addr: g1[a-z0-9]+' | head -1 | awk '{print $2}')
+ADDR=$(gnokey list 2>/dev/null | grep -oE 'g1[a-z0-9]{38,}' | head -1)
 SEQ_INFO=$(gnokey query "auth/accounts/${ADDR}" -remote "$RPC1" 2>&1)
 CURRENT_SEQ=$(echo "$SEQ_INFO" | grep -oE '"sequence":"[0-9]+"' | grep -oE '[0-9]+$')
 if [ -z "$CURRENT_SEQ" ] || [ "$CURRENT_SEQ" -eq 0 ]; then
