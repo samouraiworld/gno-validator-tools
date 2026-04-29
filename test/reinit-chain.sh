@@ -6,7 +6,7 @@ echo "🔄 Reinitializing chain..."
 
 GENESIS_FILE="genesis.json"
 CONFIG_FILE="config.toml"
-NODES=("sentry" "validator" "validator2")
+NODES=("sentry" "validator" "validator2""validator3" )
 
 # 1. Check genesis exists
 if [ ! -f "$GENESIS_FILE" ]; then
