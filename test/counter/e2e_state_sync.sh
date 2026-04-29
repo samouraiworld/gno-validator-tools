@@ -2,8 +2,8 @@
 set -e
 
 CONTAINER="test13-validator-2"
-REMOTE_1="http://localhost:26657"
-REMOTE_2="http://localhost:26658"
+REMOTE_1="http://localhost:26658"
+REMOTE_2="http://localhost:26659"
 PKG="gno.land/r/test13/v1/counter"
 KEY="test13-bis"
 
