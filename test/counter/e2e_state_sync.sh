@@ -4,7 +4,7 @@ set -e
 CONTAINER="test13-validator-2"
 REMOTE_1="http://localhost:26657"
 REMOTE_2="http://localhost:26658"
-PKG="gno.land/r/test13/v3/counter"
+PKG="gno.land/r/test13/v1/counter"
 KEY="test13-bis"
 
 echo "🔄 E2E STATE SYNC TEST"
@@ -24,7 +24,8 @@ for i in {1..3}; do
     -remote $REMOTE_1 \
     -gas-fee 1000000ugnot \
     -gas-wanted 3000000 \
-    $KEY fix.gno
+    $KEY ./increment/fix.gno
+
 done
 
 sleep 3

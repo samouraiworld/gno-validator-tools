@@ -3,7 +3,7 @@ set -e
 
 CONTAINER="test13-validator-1"
 REMOTE="http://localhost:26657"
-PKG="gno.land/r/test13/v3/counter"
+PKG="gno.land/r/test13/v1/counter"
 KEY="test13-bis"
 
 echo "💥 E2E CRASH RECOVERY TEST"
@@ -16,7 +16,7 @@ gnokey maketx run \
   -remote $REMOTE \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \
-  $KEY fix.gno
+  $KEY ./increment/fix.gno
 
 sleep 2
 
@@ -30,7 +30,7 @@ sleep 3
 echo "🔄 Restarting validator..."
 docker compose up -d
 
-sleep 5
+sleep 20
 
 # Step 3: Increment again
 echo "➡️ Increment after restart"
@@ -40,7 +40,7 @@ gnokey maketx run \
   -remote $REMOTE \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \
-  $KEY fix.gno
+  $KEY ./increment/fix.gno
 
 sleep 3
 

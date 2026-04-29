@@ -179,7 +179,7 @@ To modify the value, use a trigger script `fix.gno` via the `run` command.
 ```go
 package main
 
-import "gno.land/r/test13/v3/counter"
+import "gno.land/r/test13/v1/counter"
 
 func main() {
     counter.Increment()
@@ -212,7 +212,7 @@ Use `vm/qeval` to call the `Render` function and see the current value:
 
 ```bash
 gnokey query "vm/qeval" \
-    -data "gno.land/r/test13/v3/counter.Render(\"\")" \
+    -data "gno.land/r/test13/v1/counter.Render(\"\")" \
     -remote http://localhost:26657
 ```
 `vm/qeval` is a read-only query.
