@@ -39,4 +39,4 @@ for target in "${TARGETS[@]}"; do
 done
 
 wait
-echo -e "\n🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")" | grep -o "Compteur Samourai : [0-9]*")"
+echo -e "\n🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")"
