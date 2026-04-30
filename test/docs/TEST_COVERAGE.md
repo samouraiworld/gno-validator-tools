@@ -3,28 +3,29 @@
 Local devnet test suite for the gno-validator-tools test environment.
 Maps each script against the cherry-pick fixes planned for the gnoland1 hardfork.
 
-Scripts in `test/counter/` are the original suite.
-Scripts in `test/hardfork-audit/` target specific hardfork fixes.
-
----
-
-## Scripts — test/counter/
+## Scripts — test/e2e/
 
 | Script | Category | What it validates |
 | --- | --- | --- |
-| `audit_security.sh` | Security | VM-level vulnerability protection (overflow, recursion) |
 | `e2e_counter.sh` | Consensus | Cross-validator state consistency |
 | `e2e_crash_recovery.sh` | Resilience | State persistence after SIGKILL + restart |
 | `e2e_mempool_stress.sh` | Load | Sequential mempool throughput (10 txs) |
 | `e2e_state_sync.sh` | Consensus | State catch-up after validator downtime |
+| `e2e_nonce_replay.sh` | Security | Replay protection via sequence number enforcement |
+
+## Scripts — test/stress/
+
+| Script | Category | What it validates |
+| --- | --- | --- |
 | `sybil_chaos.sh` | Stress | 300 parallel txs, 3 accounts, 3 RPC endpoints |
 | `sybil_precision.sh` | Stress | 60 synchronous txs, controlled cadence |
 | `sybil_salted_chaos.sh` | Stress | 150 salted parallel txs, prevents dedup |
 
-## Scripts — test/hardfork-audit/
+## Scripts — test/audit/
 
 | Script | Fix ciblé | What it validates |
 | --- | --- | --- |
+| `audit_security.sh` | NEWTENDG-164 `6a6fc4c71` + NEWTENDG-182 `3be0408f0` | uint64 overflow + stack recursion protection |
 | `audit_byteslice.sh` | NEWTENDG-98 `a3a356e71` | Byte-slice index mutation persisted across transactions |
 | `audit_array_alias.sh` | `c64feef1d` | Array copy independence (no pointer aliasing) |
 | `audit_cross_realm_recover.sh` | `f87249327` | Full state rollback when panic is caught by recover() |
@@ -32,7 +33,6 @@ Scripts in `test/hardfork-audit/` target specific hardfork fixes.
 | `audit_runtime_pkg.sh` | `afd7e4808` | `runtime` import rejected in production VM |
 | `audit_var_init_order.sh` | NEWTENDG-68 `50ee56e64` | Package-level var init in dependency order |
 | `audit_gas_alloc.sh` | `5d5f9213f` | Per-byte gas model for large memory allocations |
-| `e2e_nonce_replay.sh` | general | Replay protection via sequence number enforcement — ✅ all 3 validators rejected replay |
 
 ---
 
