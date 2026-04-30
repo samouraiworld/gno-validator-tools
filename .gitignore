@@ -27,3 +27,4 @@ vagrant/.vagrant/
 inventory.yaml
 vagrant-test-plan.md
 review-2026-03-31.md
+gno/
