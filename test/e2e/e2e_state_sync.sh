@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONTAINER="test13-validator-2"
 REMOTE_1="http://localhost:26658"
 REMOTE_2="http://localhost:26659"
@@ -24,7 +25,7 @@ for i in {1..3}; do
     -remote $REMOTE_1 \
     -gas-fee 1000000ugnot \
     -gas-wanted 3000000 \
-    $KEY ./increment/fix.gno
+    $KEY "$SCRIPT_DIR/../realms/counter/txs/increment.gno"
 
 done
 

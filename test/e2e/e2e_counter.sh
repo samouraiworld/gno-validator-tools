@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REMOTE_1="http://localhost:26658"
 REMOTE_2="http://localhost:26659"
 
@@ -17,7 +18,7 @@ gnokey maketx run \
   -remote $REMOTE_1 \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \
-  $KEY fix.gno
+  $KEY "$SCRIPT_DIR/../realms/counter/txs/increment.gno"
 
 sleep 2
 

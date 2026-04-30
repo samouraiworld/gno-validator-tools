@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # --- CONFIGURATION ---
 PASSWORD="toto"
 TX_PER_ACCOUNT=100
@@ -26,7 +28,7 @@ bombard() {
             -broadcast -chainid dev -remote "$RPC" \
             -gas-fee 1000000ugnot -gas-wanted 3000000 \
             -insecure-password-stdin -quiet \
-            "$KEY" ./increment/fix.gno > /dev/null 2>&1
+            "$KEY" "$SCRIPT_DIR/../realms/counter/txs/increment.gno" > /dev/null 2>&1
         echo -n "."
     done
     echo " ✅ $KEY done."
@@ -48,4 +50,4 @@ sleep 10
 
 # Résultat final (on interroge le premier RPC)
 FINAL=$(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")
-echo "🏁 FINAL COUNTER: $(echo "$FINAL" | grep -o "Compteur Samourai : [0-9]*")"
+echo "🏁 FINAL COUNTER: $FINAL"

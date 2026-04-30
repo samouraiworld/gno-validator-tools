@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # --- CONFIGURATION ---
 PASSWORD="toto"
 TX_PER_ACCOUNT=50 # On augmente pour le chaos
@@ -25,7 +27,7 @@ bombard_salted() {
                 -gas-fee 1000000ugnot -gas-wanted 3000000 \
                 -memo "samourai-salt-$SALT" \
                 -insecure-password-stdin -quiet \
-                "$KEY" ./increment/fix.gno > /dev/null 2>&1
+                "$KEY" "$SCRIPT_DIR/../realms/counter/txs/increment.gno" > /dev/null 2>&1
         ) & # Mode ultra-parallèle
         
         if (( $i % 5 == 0 )); then echo -n "!"; sleep 0.1; fi
@@ -44,4 +46,4 @@ done
 wait
 echo -e "\n⏳ Chaos finished. Checking survivors..."
 sleep 5
-echo "🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")" | grep -o "Compteur Samourai : [0-9]*")"
+echo "🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")"

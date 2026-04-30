@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONTAINER="test13-validator-1"
 REMOTE="http://localhost:26658"
 PKG="gno.land/r/test13/v1/counter"
@@ -16,7 +17,7 @@ gnokey maketx run \
   -remote $REMOTE \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \
-  $KEY ./increment/fix.gno
+  $KEY "$SCRIPT_DIR/../realms/counter/txs/increment.gno"
 
 sleep 2
 
@@ -40,7 +41,7 @@ gnokey maketx run \
   -remote $REMOTE \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \
-  $KEY ./increment/fix.gno
+  $KEY "$SCRIPT_DIR/../realms/counter/txs/increment.gno"
 
 sleep 3
 

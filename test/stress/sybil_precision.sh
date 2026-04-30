@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # --- CONFIGURATION ---
 PASSWORD="toto"
 TX_PER_ACCOUNT=20
@@ -20,7 +22,7 @@ bombard_sync() {
             -broadcast -chainid dev -remote "$RPC" \
             -gas-fee 1000000ugnot -gas-wanted 3000000 \
             -insecure-password-stdin -quiet \
-            "$KEY" ./increment/fix.gno > /dev/null 2>&1
+            "$KEY" "$SCRIPT_DIR/../realms/counter/txs/increment.gno" > /dev/null 2>&1
         
         echo -n "."
         # Un léger délai pour laisser le bloc se confirmer

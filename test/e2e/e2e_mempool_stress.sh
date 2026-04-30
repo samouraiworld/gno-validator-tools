@@ -1,5 +1,6 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REMOTE="http://localhost:26658"
 PKG="gno.land/r/test13/v1/counter"
 KEY="test13-bis"
@@ -19,7 +20,7 @@ echo "toto" |  gnokey maketx run \
     -gas-wanted 3000000 \
     -insecure-password-stdin \
     -quiet \
-    $KEY ./increment/fix.gno
+    $KEY "$SCRIPT_DIR/../realms/counter/txs/increment.gno"
   
   if [ $? -eq 0 ]; then
     echo "✅ Sent"
