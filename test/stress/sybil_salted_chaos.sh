@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- CONFIGURATION ---
 PASSWORD="toto"
-TX_PER_ACCOUNT=50 # On augmente pour le chaos
+TX_PER_ACCOUNT=50 # Higher count for chaos testing
 TARGETS=(
     "test13-bis:http://localhost:26658" 
     "test13-acc1:http://localhost:26659" 
@@ -17,10 +17,10 @@ bombard_salted() {
     echo "🔥 Salted Chaos: $KEY on $RPC"
 
     for i in $(seq 1 $TX_PER_ACCOUNT); do
-        # Le SALT : on génère un hash unique pour chaque TX
+        # SALT: generate a unique hash per TX to prevent dedup
         SALT=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)
         
-        # On injecte le SALT via le flag -memo
+        # Inject the SALT via the -memo flag
         (
             echo "$PASSWORD" | gnokey maketx run \
                 -broadcast -chainid dev -remote "$RPC" \
@@ -28,7 +28,7 @@ bombard_salted() {
                 -memo "samourai-salt-$SALT" \
                 -insecure-password-stdin -quiet \
                 "$KEY" "$SCRIPT_DIR/../realms/counter/txs/increment.gno" > /dev/null 2>&1
-        ) & # Mode ultra-parallèle
+        ) & # Ultra-parallel: fire and forget
         
         if (( $i % 5 == 0 )); then echo -n "!"; sleep 0.1; fi
     done

@@ -5,19 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # --- CONFIGURATION ---
 PASSWORD="toto"
 TX_PER_ACCOUNT=100
-# Liste des couples (Clé:RPC)
+# List of (Key:RPC) pairs
 TARGETS=(
     "test13-bis:http://localhost:26658" 
     "test13-acc1:http://localhost:26659" 
     "test13-acc2:http://localhost:26660"
 )
 
-# Fonction de nettoyage JSON robuste
+# Robust JSON cleanup helper
 get_json_val() {
     echo "$1" | grep -o '{.*}' | jq -r "$2" 2>/dev/null
 }
 
-# Fonction de bombardement pour un compte
+# Broadcast function for one account
 bombard() {
     local KEY=$1
     local RPC=$2
@@ -36,18 +36,18 @@ bombard() {
 
 echo "🌪️  LAUNCHING SYBIL ATTACK SIMULATION..."
 
-# Lancement en parallèle
+# Launch in parallel
 for target in "${TARGETS[@]}"; do
     KEY_NAME=${target%%:*}
     RPC_URL=${target#*:}
     bombard "$KEY_NAME" "$RPC_URL" &
 done
 
-wait # Attend que les 3 comptes aient fini
+wait # Wait for all 3 accounts to finish
 
 echo -e "\n⏳ All accounts finished. Waiting for consensus to settle..."
 sleep 10
 
-# Résultat final (on interroge le premier RPC)
+# Final result (query the first RPC endpoint)
 FINAL=$(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")
 echo "🏁 FINAL COUNTER: $FINAL"

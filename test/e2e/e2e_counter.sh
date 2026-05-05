@@ -2,11 +2,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REMOTE_1="http://localhost:26658"
-REMOTE_2="http://localhost:26659"
+REMOTE_1="https://rpc.test-13-aeddi-1.gnoland.network"
+REMOTE_2="https://rpc.test-13-gfanton-1.gnoland.network"
 
-PKG="gno.land/r/test13/v1/counter"
-KEY="test13-bis"
+PKG="gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/v1/counter"
+KEY="test13-me"
 
 echo "🚀 E2E COUNTER TEST"
 
@@ -14,7 +14,7 @@ echo "🚀 E2E COUNTER TEST"
 echo "➡️ Sending Increment tx..."
 gnokey maketx run \
   -broadcast \
-  -chainid dev \
+  -chainid test-13 \
   -remote $REMOTE_1 \
   -gas-fee 1000000ugnot \
   -gas-wanted 3000000 \

@@ -5,8 +5,8 @@
 # This is a baseline sanity check that underpins all Tier 1 consensus fixes.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
+KEY="test13-me"
+CHAINID="test-13"
 RPC1="http://localhost:26658"
 RPC2="http://localhost:26659"
 RPC3="http://localhost:26660"

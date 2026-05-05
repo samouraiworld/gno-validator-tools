@@ -92,8 +92,8 @@ gnogenesis params set auth.unrestricted_addrs \
   -genesis-path "$GENESIS_FILE"
 echo "⚖️ Adjusting Voting Power..."
 
-# On utilise jq pour mettre à jour les puissances de vote
-# Ici on met 10 pour le 1 et le 2, et 9 pour le 3
+# Use jq to update voting powers
+# Set power 10 for validators 1 and 2, 9 for validator 3
 cat "$GENESIS_FILE" | jq '
   .validators[0].power = "10" | 
   .validators[1].power = "10" | 

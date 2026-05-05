@@ -5,9 +5,9 @@
 # a 10-byte alloc, making large-alloc DoS attacks virtually free.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 5d5f9213f — Per-byte gas consumption for memory allocation"

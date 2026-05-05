@@ -6,9 +6,9 @@
 # would fail replay after the hardfork.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 afd7e4808 — runtime stdlib removed from production"

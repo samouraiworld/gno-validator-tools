@@ -17,7 +17,7 @@ bombard_sync() {
     echo "⚖️  Precision Mode: $KEY on $RPC"
 
     for i in $(seq 1 $TX_PER_ACCOUNT); do
-        # Pas de '&' ici : on attend le retour du binaire gnokey
+        # No '&': wait for gnokey to return before the next tx
         echo "$PASSWORD" | gnokey maketx run \
             -broadcast -chainid dev -remote "$RPC" \
             -gas-fee 1000000ugnot -gas-wanted 3000000 \
@@ -25,7 +25,7 @@ bombard_sync() {
             "$KEY" "$SCRIPT_DIR/../realms/counter/txs/increment.gno" > /dev/null 2>&1
         
         echo -n "."
-        # Un léger délai pour laisser le bloc se confirmer
+        # Small delay to let the block confirm
         sleep 0.8
     done
     echo " ✅ $KEY done."
@@ -33,7 +33,7 @@ bombard_sync() {
 
 echo "🎯 STARTING PRECISION SYBIL TEST..."
 
-# On lance les comptes en parallèle, mais l'intérieur est séquentiel
+# Accounts run in parallel, but inner loop is sequential
 for target in "${TARGETS[@]}"; do
     KEY_NAME=${target%%:*}
     RPC_URL=${target#*:}

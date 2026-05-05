@@ -1,20 +1,19 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REMOTE="http://localhost:26658"
-PKG="gno.land/r/test13/v1/counter"
-KEY="test13-bis"
-TX_COUNT=10 # On descend à 10 pour tester la stabilité
+REMOTE="https://rpc.test-13-aeddi-1.gnoland.network"
+PKG="gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/v1/counter"
+KEY="test13-me"
+TX_COUNT=10
 
 echo "⚡ STARTING SEQUENTIAL STRESS TEST ($TX_COUNT tx)"
 
 for i in $(seq 1 $TX_COUNT); do
   echo -n "➡️ Tx #$i: "
-  # On enlève le & pour les faire une par une, mais sans sleep
-  # On ajoute --quiet pour y voir clair
+  # Sequential — no & and no sleep between txs
 echo "toto" |  gnokey maketx run \
     -broadcast \
-    -chainid dev \
+    -chainid test-13 \
     -remote $REMOTE \
     -gas-fee 1000000ugnot \
     -gas-wanted 3000000 \

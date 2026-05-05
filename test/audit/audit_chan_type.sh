@@ -5,9 +5,9 @@
 # when the channel was actually used.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 4bcd9828e — chan type rejection at preprocess"

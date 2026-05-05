@@ -5,11 +5,11 @@
 # Without the fix, Gno initialized in declaration order → A = 0 when B was set → B = 1.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 SUFFIX=$(date +%s)
-PKGPATH="gno.land/r/test13/audit/varinit${SUFFIX}"
+PKGPATH="gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/audit/varinit${SUFFIX}"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 NEWTENDG-68 — Package-level variable initialization order"

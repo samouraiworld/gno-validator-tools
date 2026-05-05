@@ -4,11 +4,11 @@
 # Without the fix, byte-slice index writes were silently dropped after tx commit.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 SUFFIX=$(date +%s)
-PKGPATH="gno.land/r/test13/audit/byteslice${SUFFIX}"
+PKGPATH="gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/audit/byteslice${SUFFIX}"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 NEWTENDG-98 — Byte-slice index mutation persistence"

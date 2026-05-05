@@ -2,12 +2,12 @@
 
 # --- CONFIGURATION ---
 PASSWORD="toto"
-RPC="http://localhost:26658"
-KEY="test13-bis"
-CHAINID="dev"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
+KEY="test13-me"
+CHAINID="test-13"
 
-# --- PRÉPARATION DES FICHIERS ---
-# On utilise des noms simples sans underscores au début pour éviter les soucis de path
+# --- FILE PREPARATION ---
+# Use simple names without leading underscores to avoid path issues
 cat <<EOF > ovf.gno
 package main
 func main() {
@@ -29,9 +29,9 @@ EOF
 echo "🛡️  STARTING SAMOURAI SECURITY AUDIT (V2)..."
 echo "------------------------------------"
 
-# --- TEST 1 : INTEGER OVERFLOW ---
+# --- TEST 1: INTEGER OVERFLOW ---
 echo -n "🧪 Testing Tier 1 (Integer Overflow)... "
-# On capture tout le flux (stdout et stderr)
+# Capture full output (stdout and stderr)
 RESULT_OVF=$(echo "$PASSWORD" | gnokey maketx run -broadcast -remote "$RPC" -chainid "$CHAINID" -gas-fee 1000000ugnot -gas-wanted 2000000 -insecure-password-stdin "$KEY" ./ovf.gno 2>&1)
 
 if echo "$RESULT_OVF" | grep -qiE "overflows|cannot use huge"; then

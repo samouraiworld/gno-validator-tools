@@ -1,25 +1,33 @@
 # Test Suite — Coverage & Gap Analysis
 
-Local devnet test suite for the gno-validator-tools test environment.
+Test suite for the gno-validator-tools environment.
 Maps each script against the cherry-pick fixes planned for the gnoland1 hardfork.
+
+> **Execution context:** Audit and most E2E tests were executed against the **live test13 network**
+> (chain height ~1,083,xxx). Tests that require direct validator control (`e2e_crash_recovery.sh`,
+> `e2e_state_sync.sh`) and the stress tests (multi-RPC, parallel accounts) are designed for a
+> **local Docker Compose devnet** only and have not been executed yet.
 
 ## Scripts — test/e2e/
 
-| Script | Category | What it validates |
-| --- | --- | --- |
-| `e2e_counter.sh` | Consensus | Cross-validator state consistency |
-| `e2e_crash_recovery.sh` | Resilience | State persistence after SIGKILL + restart |
-| `e2e_mempool_stress.sh` | Load | Sequential mempool throughput (10 txs) |
-| `e2e_state_sync.sh` | Consensus | State catch-up after validator downtime |
-| `e2e_nonce_replay.sh` | Security | Replay protection via sequence number enforcement |
+| Script | Category | What it validates | Executed |
+| --- | --- | --- | --- |
+| `e2e_counter.sh` | Consensus | Cross-validator state consistency | ✅ test13 |
+| `e2e_mempool_stress.sh` | Load | Sequential mempool throughput (10 txs) | ✅ test13 |
+| `e2e_nonce_replay.sh` | Security | Replay protection via sequence number enforcement | ✅ test13 |
+| `e2e_crash_recovery.sh` | Resilience | State persistence after SIGKILL + restart | ❌ local only — requires validator control |
+| `e2e_state_sync.sh` | Consensus | State catch-up after validator downtime | ❌ local only — requires validator control |
 
 ## Scripts — test/stress/
 
-| Script | Category | What it validates |
-| --- | --- | --- |
-| `sybil_chaos.sh` | Stress | 300 parallel txs, 3 accounts, 3 RPC endpoints |
-| `sybil_precision.sh` | Stress | 60 synchronous txs, controlled cadence |
-| `sybil_salted_chaos.sh` | Stress | 150 salted parallel txs, prevents dedup |
+Designed for a **local Docker Compose devnet** with multiple RPC endpoints and funded test accounts.
+These scripts have not been run on test13.
+
+| Script | Category | What it validates | Executed |
+| --- | --- | --- | --- |
+| `sybil_chaos.sh` | Stress | 300 parallel txs, 3 accounts, 3 RPC endpoints | ❌ local only |
+| `sybil_precision.sh` | Stress | 60 synchronous txs, controlled cadence | ❌ local only |
+| `sybil_salted_chaos.sh` | Stress | 150 salted parallel txs, prevents dedup | ❌ local only |
 
 ## Scripts — test/audit/
 
@@ -132,7 +140,9 @@ producing blocks normally — there is no crash or observable anomaly.
 
 | Status | Count | Details |
 | --- | --- | --- |
-| ✅ Patched | 8 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808`, `50ee56e64` |
-| ❌ Vulnerable | 1 | `f87249327` — **must cherry-pick before hardfork** |
-| Not run yet | 0 | all hardfork-audit scripts executed |
-| Not tested | ~15 | Network-level and RPC fixes, no local script |
+| ✅ Patched (test13) | 8 | `6a6fc4c71`, `3be0408f0`, `a3a356e71`, `c64feef1d`, `4bcd9828e`, `5d5f9213f`, `afd7e4808`, `50ee56e64` |
+| ❌ Vulnerable (test13) | 1 | `f87249327` — **must cherry-pick before hardfork** |
+| Partial (test13) | 1 | `audit_gas_alloc.sh` (OOG confirmed, small alloc re-run after sequence error) |
+| Not tested — local devnet only | 2 | `e2e_crash_recovery.sh`, `e2e_state_sync.sh` — require direct validator control |
+| Not tested — stress suite | 3 | `sybil_*.sh` — require local Docker Compose with funded accounts |
+| Not tested — no script | ~11 | Network-level and RPC fixes (`b56b78f1e`, `f7a23f1ea`, `786f06ba2`, `e72b47960`, `8d17f08e3`, `d27fdaff5`, `81d9f806c`, …) |

@@ -5,11 +5,11 @@
 # so modifying the copy silently corrupted the original persistent state.
 
 PASSWORD="toto"
-KEY="test13-bis"
-CHAINID="dev"
-RPC="http://localhost:26658"
+KEY="test13-me"
+CHAINID="test-13"
+RPC="https://rpc.test-13-aeddi-1.gnoland.network"
 SUFFIX=$(date +%s)
-PKGPATH="gno.land/r/test13/audit/arrayalias${SUFFIX}"
+PKGPATH="gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/audit/arrayalias${SUFFIX}"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 c64feef1d — Array copy independence"
