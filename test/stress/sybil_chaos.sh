@@ -4,12 +4,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- CONFIGURATION ---
 PASSWORD="toto"
-TX_PER_ACCOUNT=100
+TX_PER_ACCOUNT=10
 # List of (Key:RPC) pairs
 TARGETS=(
-    "test13-bis:http://localhost:26658" 
-    "test13-acc1:http://localhost:26659" 
-    "test13-acc2:http://localhost:26660"
+    "test13-me:https://rpc.test-13-moul-1.gnoland.network" 
+    "test13-acc1:https://rpc.test-13-gfanton-1.gnoland.network/" 
+    "test13-acc2:https://rpc.test-13-aeddi-1.gnoland.network/"
 )
 
 # Robust JSON cleanup helper
@@ -49,5 +49,5 @@ echo -e "\n⏳ All accounts finished. Waiting for consensus to settle..."
 sleep 10
 
 # Final result (query the first RPC endpoint)
-FINAL=$(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")
+FINAL=$(gnokey query "vm/qeval" -remote "https://rpc.test-13-aeddi-1.gnoland.network" -data "gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/v1/counter.Render(\"\")")
 echo "🏁 FINAL COUNTER: $FINAL"

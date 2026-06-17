@@ -7,9 +7,9 @@
 PASSWORD="toto"
 KEY="test13-me"
 CHAINID="test-13"
-RPC1="http://localhost:26658"
-RPC2="http://localhost:26659"
-RPC3="http://localhost:26660"
+RPC1="https://rpc.test-13-aeddi-1.gnoland.network"
+RPC2="https://rpc.test-13-gfanton-1.gnoland.network"
+RPC3="https://rpc.test-13-moul-1.gnoland.network"
 TMPDIR=$(mktemp -d)
 
 echo "🧪 Replay protection — sequence number enforcement"

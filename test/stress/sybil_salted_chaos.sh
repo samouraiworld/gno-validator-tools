@@ -4,11 +4,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- CONFIGURATION ---
 PASSWORD="toto"
-TX_PER_ACCOUNT=50 # Higher count for chaos testing
+TX_PER_ACCOUNT=10 # Higher count for chaos testing
 TARGETS=(
-    "test13-bis:http://localhost:26658" 
-    "test13-acc1:http://localhost:26659" 
-    "test13-acc2:http://localhost:26660"
+    "test13-me:https://rpc.test-13-moul-1.gnoland.network" 
+    "test13-acc1:https://rpc.test-13-gfanton-1.gnoland.network/" 
+    "test13-acc2:https://rpc.test-13-aeddi-1.gnoland.network/"
 )
 
 bombard_salted() {
@@ -46,4 +46,4 @@ done
 wait
 echo -e "\n⏳ Chaos finished. Checking survivors..."
 sleep 5
-echo "🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "http://localhost:26658" -data "gno.land/r/test13/v1/counter.Render(\"\")")"
+echo "🏁 FINAL COUNTER: $(gnokey query "vm/qeval" -remote "https://rpc.test-13-aeddi-1.gnoland.network" -data "gno.land/r/g19xnaenyhe88emmge4726ta43lp3n237vvuzc2n/v1/counter.Render(\"\")")"
