@@ -1,0 +1,55 @@
+services:
+  validator:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26658:26657
+    volumes:
+      - ./validator/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator/config.toml:/gnoroot/config.toml:ro
+      - ./validator/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-1"
+      SEEDS: "g1aeqqkpxfjxnvvdf9fa6ydluw7hg524g7r9l7kn@validator2:26656,g1z67dals6atpsreepsu5mmz35srd3egrgm0t2dh@validator3:26656"
+      PERSISTENT_PEERS: "g1aeqqkpxfjxnvvdf9fa6ydluw7hg524g7r9l7kn@validator2:26656,g1z67dals6atpsreepsu5mmz35srd3egrgm0t2dh@validator3:26656"
+      PEX: "true"
+
+  validator2:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26659:26657
+    volumes:
+      - ./validator2/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator2/config.toml:/gnoroot/config.toml:ro
+      - ./validator2/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator2/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-2"
+      SEEDS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747@validator:26656,g1z67dals6atpsreepsu5mmz35srd3egrgm0t2dh@validator3:26656"
+      PERSISTENT_PEERS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747@validator:26656,g1z67dals6atpsreepsu5mmz35srd3egrgm0t2dh@validator3:26656"
+      PEX: "true"
+
+  validator3:
+    image: "gno-validator:test13"
+#    image: "ghcr.io/gnolang/gno/gnoland:chain-test11"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26660:26657
+    volumes:
+      - ./validator3/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator3/config.toml:/gnoroot/config.toml:ro
+      - ./validator3/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator3/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-3"
+      SEEDS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747@validator:26656,g1aeqqkpxfjxnvvdf9fa6ydluw7hg524g7r9l7kn@validator2:26656"
+      PERSISTENT_PEERS: "g1ue6mkyyjc99q84a3892e6eh28h6npgdhg9s747@validator:26656,g1aeqqkpxfjxnvvdf9fa6ydluw7hg524g7r9l7kn@validator2:26656"
+      PEX: "true"
+
