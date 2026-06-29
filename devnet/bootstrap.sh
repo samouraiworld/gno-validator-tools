@@ -36,6 +36,10 @@ fi
 GNO_CONTRIBS_IMAGE="${GNO_CONTRIBS_IMAGE:-gno-contribs:local}"
 DOCKER_USER="$(id -u):$(id -g)"
 NODES=(validator validator2 validator3 validator4)
+# Nodes whose consensus signing is externalized to a tmkms sidecar (softsign).
+# Their signer material lives under tmkms/<node>/secrets/ and is (re)generated
+# here from the node's own validator key, so it always matches genesis.
+TMKMS_NODES=(validator)
 
 # Local-only dev account, generated into .gnokey-dev/ (gitignored, never
 # committed). Used as the genesis "unrestricted" address (auth.unrestricted_addrs)
@@ -77,6 +81,31 @@ for node in "${NODES[@]}"; do
       -v "$PWD/$node/gnoland-data:/gnoroot/gnoland-data" \
       "$GNO_IMAGE" secrets init
   fi
+done
+
+echo "==> [tmkms] Preparing signer material for tmkms-backed nodes"
+mkdir -p tmkms/run   # shared dir where gnoland creates the privval socket (0600)
+for node in "${TMKMS_NODES[@]}"; do
+  secdir="tmkms/$node/secrets"
+  mkdir -p "$secdir"
+  # Reslice the node's consensus key into softsign format: base64 of the
+  # 32-byte ed25519 seed (gnoland stores base64 of the 64-byte seed‖pubkey).
+  # Always refreshed so it tracks the node's CURRENT key — clean-all
+  # regenerates the node key and the reslice must follow, or tmkms would sign
+  # with a key absent from genesis and the chain would reject its votes.
+  jq -r '.priv_key.value' "$node/gnoland-data/secrets/priv_validator_key.json" \
+    | base64 -d | head -c 32 | base64 -w0 > "$secdir/consensus.key"
+  chmod 600 "$secdir/consensus.key"
+  # tmkms SecretConnection identity (32 random bytes, base64). Generated once.
+  if [ ! -f "$secdir/kms-identity.key" ]; then
+    head -c 32 /dev/urandom | base64 -w0 > "$secdir/kms-identity.key"
+    chmod 600 "$secdir/kms-identity.key"
+  fi
+  # NOTE: consensus_state.json (tmkms's HRS double-sign gate) is intentionally
+  # NOT touched here — resetting it on a live chain could cause a double-sign.
+  # The chain-reset path (reinit-chain.sh) clears it, mirroring the gnoland
+  # priv_validator_state.json reset.
+  echo "    -> $node (consensus.key resliced from priv_validator_key, kms-identity ready)"
 done
 
 echo "==> [3/7] Generating shared base config.toml"

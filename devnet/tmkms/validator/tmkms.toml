@@ -1,0 +1,24 @@
+# tmkms config for the devnet `validator` node — softsign backend, Unix-socket
+# transport (same-host sidecar). Paths are absolute and refer to the mounts
+# defined in docker-compose.yml:
+#   ./tmkms/validator -> /tmkms   (this config + secrets)
+#   ./tmkms/run       -> /run/gnoland (the shared privval socket dir)
+# chain_id MUST match the gnoland genesis / tmkms_listener.chain_id ("dev").
+
+[[chain]]
+id = "dev"
+key_format = { type = "hex" }
+state_file = "/tmkms/secrets/consensus_state.json"
+
+[[providers.softsign]]
+chain_ids = ["dev"]
+key_type = "consensus"
+key_format = "base64"
+path = "/tmkms/secrets/consensus.key"
+
+[[validator]]
+chain_id = "dev"
+addr = "unix:///run/gnoland/privval.sock"   # same-host UDS; no peer-ID pin
+secret_key = "/tmkms/secrets/kms-identity.key"
+protocol_version = "v0.34"                   # gnoland speaks only v0.34
+reconnect = true

@@ -1,3 +1,10 @@
+# Pin the Compose project name so `docker compose` behaves identically whether
+# invoked via `make` (the Makefile also exports COMPOSE_PROJECT_NAME=gnoland-test)
+# or run directly from this directory. Without this, a raw `docker compose` here
+# would default the project to the directory name ("devnet") and act on an
+# empty, parallel stack — so `docker compose ps` would show nothing.
+name: gnoland-test
+
 services:
   validator:
     image: "${GNO_IMAGE:-gno-validator:local}"
@@ -10,12 +17,31 @@ services:
       - ./validator/config.toml:/gnoroot/config.toml:ro
       - ./validator/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
       - ./validator/gnoland-data:/gnoroot/gnoland-data
+      # tmkms sidecar: shared dir where gnoland creates the privval socket
+      - ./tmkms/run:/run/gnoland
     entrypoint: /entrypoint.sh
     environment:
       MONIKER: "samourai-crew-1"
       SEEDS: "${SEEDS_VALIDATOR}"
       PERSISTENT_PEERS: "${SEEDS_VALIDATOR}"
       PEX: "true"
+      # Externalize consensus signing to the tmkms sidecar (see tmkms service).
+      # Unset these to revert validator to local signing.
+      TMKMS_CHAIN_ID: "dev"
+      TMKMS_LISTEN_ADDR: "unix:///run/gnoland/privval.sock"
+
+  # tmkms signer for `validator` (softsign backend, Unix-socket transport).
+  # It dials the socket gnoland creates; reconnect=true makes it retry until
+  # the validator is up. Same UID as validator so the 0600 socket is reachable.
+  tmkms:
+    image: tmkms:local
+    build: ./tmkms
+    restart: on-failure
+    user: "${DOCKER_USER:-1000:1000}"
+    command: ["start", "-c", "/tmkms/tmkms.toml"]
+    volumes:
+      - ./tmkms/validator:/tmkms
+      - ./tmkms/run:/run/gnoland
 
   validator2:
     image: "${GNO_IMAGE:-gno-validator:local}"
