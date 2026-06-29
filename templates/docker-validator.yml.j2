@@ -10,13 +10,28 @@ services:
       - ./config.toml:/gnoroot/config.toml:ro
       - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
       - ./gnoland-data:/gnoroot/gnoland-data
+{% if tmkms_enabled | default(false) | bool %}
+      # tmkms sidecar: shared dir where gnoland creates the privval socket
+      - ./tmkms/run:/run/gnoland
+{% endif %}
     entrypoint: /entrypoint.sh
     environment:
       MONIKER: "{{ moniker_validator }}"
       PERSISTENT_PEERS: "{{ persistent_peers_sentry | default('') }}"
-      PEX: "{{ pex_validator }}" 
+      PEX: "{{ pex_validator }}"
       MAX_PEERS: 2
       INBOUND: 0
+{% if tmkms_enabled | default(false) | bool %}
+      # Externalize consensus signing to the tmkms sidecar (entrypoint.sh turns
+      # these into the tmkms_listener config fields, listen_addr last).
+      TMKMS_CHAIN_ID: "{{ tmkms_chain_id }}"
+{% if tmkms_transport | default('uds') == 'tcp' %}
+      TMKMS_LISTEN_ADDR: "tcp://0.0.0.0:{{ tmkms_listen_port | default(26659) }}"
+      TMKMS_ALLOWED_KMS_PUBKEYS: "{{ tmkms_allowed_kms_pubkeys | join(',') }}"
+{% else %}
+      TMKMS_LISTEN_ADDR: "unix://{{ tmkms_socket_path | default('/run/gnoland/privval.sock') }}"
+{% endif %}
+{% endif %}
 
   otel-collector:
     image: "{{ otel_image }}"
@@ -28,3 +43,17 @@ services:
     ports:
       - 9464:9464
       - 127.0.0.1:4317:4317
+{% if tmkms_enabled | default(false) | bool %}
+
+  # tmkms signer sidecar (softsign). Dials the privval socket gnoland creates;
+  # reconnect=true retries until the validator is up. Runs as root (like the
+  # validator), so the 0600 socket is reachable on both ends.
+  tmkms:
+    image: "{{ tmkms_image | default('tmkms:local') }}"
+    restart: on-failure
+    command: ["start", "-c", "/tmkms/tmkms.toml"]
+    volumes:
+      - ./tmkms/tmkms.toml:/tmkms/tmkms.toml:ro
+      - ./tmkms/secrets:/tmkms/secrets
+      - ./tmkms/run:/run/gnoland
+{% endif %}
