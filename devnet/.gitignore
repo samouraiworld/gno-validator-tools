@@ -1,0 +1,24 @@
+# Generated devnet state - NOTHING here is committed. bootstrap.sh regenerates
+# keys, gnokey accounts, genesis, balances and config from scratch on every
+# fresh setup (see 'make clean-all' / 'make full-reinit'). Addresses therefore
+# change between setups, which is fine: the genesis, .env and the rendered .gno
+# scripts are all derived from the same freshly generated keys.
+
+# Per-node runtime state + identities (BFT keys, db, wal, config/genesis copies)
+*/gnoland-data/
+*/genesis.json
+*/config.toml
+
+# Top-level generated artifacts
+genesis.json
+genesis_balances.txt
+config.toml
+.env
+.devaddrs.mk
+
+# Throwaway gnokey dev keybase (dev + v4op accounts)
+.gnokey-dev/
+
+# GovDAO scripts rendered from the committed *.tmpl files
+init-govdao.gno
+propose-validator4.gno
