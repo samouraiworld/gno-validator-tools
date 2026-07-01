@@ -1,0 +1,25 @@
+---
+# defaults file for roles/tmkms
+# Externalize the validator's consensus signing to a same-host tmkms sidecar
+# (softsign backend, Unix-socket transport). gnoland LISTENS on the socket;
+# tmkms DIALS in and signs. For the 2-VM TCP variant see ../../tmkms-lab/.
+
+# Master switch. false → role is a no-op and the compose omits the tmkms service.
+tmkms_enabled: false
+
+# Chain id — MUST match genesis / config.toml tmkms_listener.chain_id.
+tmkms_chain_id: ""
+
+# Remote layout on the validator host (mirrors the gno_dir convention).
+tmkms_remote_dir: "/root/{{ gno_dir }}/tmkms"
+tmkms_node_data_dir: "/root/{{ gno_dir }}/gnoland-data"
+tmkms_node_secrets_dir: "{{ tmkms_node_data_dir }}/secrets"
+
+# tmkms image. Built on the host from files/Dockerfile by default. For an
+# airgapped/hardened host, prebuild + push to a registry, set tmkms_image to
+# that ref and tmkms_build_image: false.
+tmkms_image: "tmkms:local"
+tmkms_build_image: true
+
+# UDS socket path inside the containers (shared via the tmkms/run mount).
+tmkms_socket_path: "/run/gnoland/privval.sock"

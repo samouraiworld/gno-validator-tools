@@ -177,6 +177,28 @@ loki_bearer_token: ""
 
 
 # =============================================================================
+# TMKMS (externalized consensus signing) — see roles/tmkms/README.md
+# =============================================================================
+
+# TMKMS (externalized consensus signing) — see roles/tmkms/README.md
+# Same-host softsign sidecar over a Unix socket. For the 2-VM TCP variant,
+# see tmkms-lab/ (manual runbook).
+
+# false → validator signs locally (the compose omits the tmkms service).
+tmkms_enabled: false
+
+# Chain id — MUST match the genesis chain id. Required when tmkms_enabled.
+tmkms_chain_id: ""
+
+# tmkms image. Built on the host from roles/tmkms/files/Dockerfile by default.
+# For a prebuilt image:
+#   tmkms_image: registry.example.com/tmkms:0.15.0-softsign
+#   tmkms_build_image: false
+tmkms_image: "tmkms:local"
+tmkms_build_image: true
+
+
+# =============================================================================
 # EXAMPLES
 # =============================================================================
 

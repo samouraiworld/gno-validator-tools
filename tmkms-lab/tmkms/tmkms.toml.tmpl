@@ -1,0 +1,18 @@
+# Rendered by setup-vm2-tmkms.sh (placeholders __CHAIN__ __PEERID__ __IP_GNO__).
+[[chain]]
+id = "__CHAIN__"
+key_format = { type = "hex" }
+state_file = "/tmkms/secrets/consensus_state.json"
+
+[[providers.softsign]]
+chain_ids = ["__CHAIN__"]
+key_type = "consensus"
+key_format = "base64"
+path = "/tmkms/secrets/consensus.key"
+
+[[validator]]
+chain_id = "__CHAIN__"
+addr = "tcp://__PEERID__@__IP_GNO__:26659"   # peer-id pin is mandatory on TCP
+secret_key = "/tmkms/secrets/kms-identity.key"
+protocol_version = "v0.34"
+reconnect = true

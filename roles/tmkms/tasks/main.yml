@@ -1,0 +1,90 @@
+---
+# tasks file for roles/tmkms — same-host softsign sidecar (Unix socket).
+# Runs on the validator host (as root) BEFORE `docker compose up`. Prepares the
+# tmkms image, config and signer keys so the sidecar can sign for the validator.
+# For the 2-VM TCP variant see ../../tmkms-lab/ (manual runbook).
+
+- name: Assert chain_id is set
+  ansible.builtin.assert:
+    that:
+      - tmkms_chain_id | length > 0
+    fail_msg: "tmkms_chain_id must be set (must match the genesis chain id)."
+
+- name: Ensure jq is installed (consensus key reslice)
+  ansible.builtin.apt:
+    name: jq
+    state: present
+
+- name: Create tmkms directories on the validator
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ tmkms_remote_dir }}"
+    - "{{ tmkms_remote_dir }}/secrets"
+    - "{{ tmkms_remote_dir }}/run"
+
+# The reslice needs the node's priv_validator_key.json (same key whose pubkey
+# goes into genesis). Generate node secrets if missing (idempotent).
+- name: Ensure node secrets exist (source of the consensus key + genesis pubkey)
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data
+      --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
+    creates: "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+
+- name: Build tmkms image from the role Dockerfile
+  when: tmkms_build_image | bool
+  block:
+    - name: Stage tmkms Dockerfile
+      ansible.builtin.copy:
+        src: Dockerfile
+        dest: "{{ tmkms_remote_dir }}/Dockerfile"
+        mode: "0644"
+    - name: docker build tmkms image
+      ansible.builtin.command:
+        cmd: "docker build -t {{ tmkms_image }} ."
+        chdir: "{{ tmkms_remote_dir }}"
+      register: _tmkms_build
+      changed_when: "'Building' in _tmkms_build.stdout or 'naming to' in _tmkms_build.stderr"
+
+- name: Render tmkms.toml
+  ansible.builtin.template:
+    src: tmkms.toml.j2
+    dest: "{{ tmkms_remote_dir }}/tmkms.toml"
+    mode: "0600"
+
+# reslice: gnoland stores base64 of the 64-byte seed‖pubkey; softsign wants
+# base64 of just the 32-byte seed. Idempotent (creates:) so an existing signing
+# key is never silently changed — remove consensus.key to force a refresh after
+# a deliberate key rotation.
+- name: Reslice consensus key from priv_validator_key.json
+  ansible.builtin.shell:
+    cmd: >-
+      jq -r '.priv_key.value' "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+      | base64 -d | head -c 32 | base64 -w0 > "{{ tmkms_remote_dir }}/secrets/consensus.key"
+    creates: "{{ tmkms_remote_dir }}/secrets/consensus.key"
+
+- name: Lock down consensus key
+  ansible.builtin.file:
+    path: "{{ tmkms_remote_dir }}/secrets/consensus.key"
+    mode: "0600"
+
+- name: Generate tmkms identity key (32 random bytes, base64) once
+  ansible.builtin.shell:
+    cmd: "head -c 32 /dev/urandom | base64 -w0 > \"{{ tmkms_remote_dir }}/secrets/kms-identity.key\""
+    creates: "{{ tmkms_remote_dir }}/secrets/kms-identity.key"
+
+- name: Lock down kms-identity key
+  ansible.builtin.file:
+    path: "{{ tmkms_remote_dir }}/secrets/kms-identity.key"
+    mode: "0600"
+
+- name: tmkms sidecar prepared
+  ansible.builtin.debug:
+    msg: >-
+      tmkms ready (uds / softsign, chain_id={{ tmkms_chain_id }}).
+      The validator's tmkms_listener is set by entrypoint.sh via TMKMS_* env;
+      `docker compose up -d` will start the tmkms sidecar.

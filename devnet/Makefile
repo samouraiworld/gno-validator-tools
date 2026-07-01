@@ -121,6 +121,7 @@ clean-all: clean-db
 		        validator/genesis.json validator2/genesis.json validator3/genesis.json validator4/genesis.json \
 		        validator/config.toml validator2/config.toml validator3/config.toml validator4/config.toml \
 		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk \
+		        tmkms/*/secrets tmkms/run \
 		        init-govdao.gno propose-validator4.gno'
 	@echo "✅ Clean. Run 'make full-reinit' to regenerate everything from scratch."
 

@@ -18,6 +18,7 @@ gnoland1/
 # Vagrant
 # =============================================================================
 vagrant/.vagrant/
+vagrant/*.log
 
 # =============================================================================
 # Ansible retry files
@@ -28,3 +29,22 @@ vagrant-test-plan.md
 review-2026-03-31.md
 gno/
 **result.test
+
+# Personal notes — never commit
+tests/info-for-me.md
+
+# =============================================================================
+# Secrets — defense-in-depth, match anywhere in the tree. Never commit keys.
+# (Per-directory .gitignore files, e.g. devnet/.gitignore, still apply too.)
+# =============================================================================
+**/secrets/
+**/priv_validator_key.json
+**/priv_validator_state.json
+**/node_key.json
+**/consensus.key
+**/kms-identity.key
+**/consensus_state.json
+**/keys.db
+**/.gnokey*/
+**/.env
+!**/.env.example

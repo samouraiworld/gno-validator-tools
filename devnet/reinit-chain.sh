@@ -65,6 +65,15 @@ for node in "${NODES[@]}"; do
   cd - > /dev/null
 done
 
+# Reset tmkms signer HRS state so the freshly reinitialized (height-0) chain
+# isn't blocked by tmkms's double-sign gate. tmkms records the highest height
+# it ever signed in consensus_state.json and refuses anything <= that; after a
+# chain reset it would refuse the new low heights -> the validator never signs.
+# tmkms recreates the file at height 0 on next start. Mirrors the
+# priv_validator_state.json reset above. No-op if tmkms isn't in use.
+echo "🧹 Resetting tmkms signer state (if any)"
+rm -f tmkms/*/secrets/consensus_state.json 2>/dev/null || true
+
 echo "✅ Chain reinitialized."
 echo ""
 echo "👉 Now restart your nodes:"

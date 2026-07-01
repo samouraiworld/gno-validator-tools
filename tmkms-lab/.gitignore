@@ -1,0 +1,11 @@
+# tmkms-lab: throwaway 2-VM TCP test. NOTHING here is committed (secrets + state).
+.env
+config.toml
+genesis.json
+genesis_balances.txt
+*/genesis.json
+*/config.toml
+*/gnoland-data/
+tmkms/secrets/
+tmkms/tmkms.toml
+tmkms-share/

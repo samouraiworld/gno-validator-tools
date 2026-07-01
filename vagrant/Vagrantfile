@@ -16,7 +16,7 @@ Vagrant.configure("2") do |config|
   # Sentry node
   config.vm.define "sentry" do |s|
     s.vm.hostname = "gno-sentry-test"
-    s.vm.network "private_network", ip: "192.168.56.11"
+    s.vm.network "private_network", ip: "192.168.56.09"
 
     s.vm.provider "virtualbox" do |vb|
       vb.name = "gno-sentry-test"
@@ -32,6 +32,17 @@ Vagrant.configure("2") do |config|
 
     m.vm.provider "virtualbox" do |vb|
       vb.name = "gno-monitoring-test"
+      vb.memory = 2048
+      vb.cpus = 2
+    end
+  end
+
+  config.vm.define "tmkms" do |s|
+    s.vm.hostname = "gno-tmkms"
+    s.vm.network "private_network", ip: "192.168.56.11"
+
+    s.vm.provider "virtualbox" do |vb|
+      vb.name = "gno-tmkms"
       vb.memory = 2048
       vb.cpus = 2
     end

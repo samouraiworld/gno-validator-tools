@@ -104,6 +104,16 @@
       when: not gno_use_sentry | bool
       tags: [config]
 
+    # --- tmkms sidecar (optional) --------------------------------------------
+    # Prepares the tmkms image, config and signer keys before the stack starts.
+    # No-op unless tmkms_enabled is true. The compose templates above already
+    # included the tmkms service + TMKMS_* env conditionally on the same flag.
+    - name: Configure tmkms sidecar signer
+      ansible.builtin.include_role:
+        name: tmkms
+      when: tmkms_enabled | default(false) | bool
+      tags: [tmkms, config]
+
     # --- Images Docker --------------------------------------------------------
     - name: Pull Docker images on validator
       ansible.builtin.command: docker pull {{ item }}
