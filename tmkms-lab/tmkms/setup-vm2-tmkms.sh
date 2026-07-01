@@ -20,21 +20,27 @@ mkdir -p secrets
 echo "==> Building tmkms:local (si absent)"
 docker image inspect tmkms:local >/dev/null 2>&1 || docker build -t tmkms:local .
 
-echo "==> Génération de la clé kms-identity + sa pubkey"
+echo "==> kms-identity : dérivation de la pubkey (génère la clé si absente)"
+# Idempotent: si la clé existe, on relit son seed et on redérive la pubkey
+# (ed25519: pubkey = fonction déterministe du seed) ; sinon on en génère une.
+# Dans les deux cas on affiche ed25519:<hex> (= la valeur TMKMS_ALLOW de VM1).
 cat > /tmp/kmsgen.go <<'GO'
 package main
 import ("crypto/ed25519";"crypto/rand";"encoding/base64";"encoding/hex";"fmt";"os")
-func main(){ s:=make([]byte,ed25519.SeedSize); rand.Read(s)
+func main(){
+ path:=os.Args[1]
+ var s []byte
+ if b,err:=os.ReadFile(path); err==nil { // clé existante -> redérive
+  s,err=base64.StdEncoding.DecodeString(string(b))
+  if err!=nil || len(s)!=ed25519.SeedSize { fmt.Fprintln(os.Stderr,"seed kms-identity invalide"); os.Exit(1) }
+ } else { // absente -> génère
+  s=make([]byte,ed25519.SeedSize); rand.Read(s)
+  os.WriteFile(path,[]byte(base64.StdEncoding.EncodeToString(s)),0o600)
+ }
  p:=ed25519.NewKeyFromSeed(s).Public().(ed25519.PublicKey)
- os.WriteFile(os.Args[1],[]byte(base64.StdEncoding.EncodeToString(s)),0o600)
  fmt.Println("ed25519:"+hex.EncodeToString(p)) }
 GO
-if [ ! -f secrets/kms-identity.key ]; then
-  ALLOW=$(docker run --rm -v "$PWD/secrets:/s" -v /tmp/kmsgen.go:/kmsgen.go:ro golang:1-alpine go run /kmsgen.go /s/kms-identity.key)
-else
-  echo "    (kms-identity.key existe déjà — recalcul de la pubkey impossible ici, réutilise l'ancien ALLOW)"
-  ALLOW="(déjà généré — voir ton .env VM1)"
-fi
+ALLOW=$(docker run --rm -v "$PWD/secrets:/s" -v /tmp/kmsgen.go:/kmsgen.go:ro golang:1-alpine go run /kmsgen.go /s/kms-identity.key)
 
 echo "==> Rendu de tmkms.toml"
 sed -e "s/__CHAIN__/$CHAIN_ID/g" -e "s/__PEERID__/$VAL_PEERID/g" -e "s#__IP_GNO__#$IP_GNO#g" \
