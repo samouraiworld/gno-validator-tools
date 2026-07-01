@@ -180,38 +180,22 @@ loki_bearer_token: ""
 # TMKMS (externalized consensus signing) — see roles/tmkms/README.md
 # =============================================================================
 
-# Externalize the validator's consensus signing to a tmkms sidecar (softsign).
-# false → validator signs locally as before (the compose omits the tmkms service).
+# TMKMS (externalized consensus signing) — see roles/tmkms/README.md
+# Same-host softsign sidecar over a Unix socket. For the 2-VM TCP variant,
+# see tmkms-lab/ (manual runbook).
+
+# false → validator signs locally (the compose omits the tmkms service).
 tmkms_enabled: false
 
 # Chain id — MUST match the genesis chain id. Required when tmkms_enabled.
 tmkms_chain_id: ""
 
-# Transport:
-#   uds → same-host sidecar over a Unix socket (simplest; no real key isolation
-#         on a single host).
-#   tcp → tmkms on a separate, less-exposed host (the real isolation win).
-#         Requires tmkms_validator_ip, tmkms_validator_peer_id and
-#         tmkms_allowed_kms_pubkeys, and UFW must allow 26659 from the signer only.
-tmkms_transport: uds
-
 # tmkms image. Built on the host from roles/tmkms/files/Dockerfile by default.
-# For an airgapped validator, prebuild + push to a registry, then set:
+# For a prebuilt image:
 #   tmkms_image: registry.example.com/tmkms:0.15.0-softsign
 #   tmkms_build_image: false
 tmkms_image: "tmkms:local"
 tmkms_build_image: true
-
-# Consensus key source: "reslice" (derive from the node's priv_validator_key.json)
-# or "file" (copy tmkms_consensus_key_src staged on the controller, e.g. a
-# Vaultwarden export). Reslice is the default and matches the genesis pubkey.
-tmkms_consensus_key_source: reslice
-# tmkms_consensus_key_src: "./secrets/test14-consensus.key"
-
-# --- TCP-only settings (ignored when tmkms_transport: uds) -------------------
-# tmkms_validator_ip: "172.16.12.2"        # interface gnoland binds the listener to
-# tmkms_validator_peer_id: ""               # hex peer id, pinned in tmkms addr
-# tmkms_allowed_kms_pubkeys: []             # hex ed25519 pubkey(s) of the signer
 
 
 # =============================================================================
