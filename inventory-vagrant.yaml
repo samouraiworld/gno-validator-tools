@@ -20,6 +20,18 @@ all:
           ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/validator/virtualbox/private_key
           ufw_ports_moni: [26656, 26657]
           ufw_allow_ip: 192.168.56.11
+    tmkms:
+      hosts:
+         gno-tmkms:
+          ansible_host: 192.168.56.11
+          public_ip: 192.168.56.11
+          private_ip: 192.168.56.11
+          gno_network_mode: public
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/tmkms/virtualbox/private_key
+          ufw_ports_moni: [26656, 26657]
+          ufw_allow_ip: 192.168.56.11
+   
+
     sentries:
       hosts:
         
