@@ -15,7 +15,7 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 7. [Variables reference](#variables-reference)
 8. [Security considerations](#security-considerations)
 9. [Adding a new validator](#adding-a-new-validator)
-10. [Labs (tmkms-lab)](#labs-tmkms-lab)
+10. [Local environments (devnet & tmkms-lab)](#local-environments-devnet--tmkms-lab)
 
 ---
 
@@ -947,18 +947,36 @@ Logs from the new validator will appear in Grafana under the label `job: samoura
 
 ---
 
-## Labs (tmkms-lab)
+## Local environments (devnet & tmkms-lab)
 
-[`tmkms-lab/`](tmkms-lab/) is a **self-contained experiment**, separate from the
-production Ansible workflow above. It stands up a single-validator gnoland chain
-(plus one sentry) across two VMs and **externalizes the validator's consensus
-signing to [tmkms](https://github.com/iqlusioninc/tmkms)** over TCP: the private
-consensus key lives on a second VM, not inside the gnoland container.
+Two Docker-based sandboxes live alongside the production Ansible workflow. Both
+are **self-contained, throwaway `dev` chains** that never commit secrets or keys
+— everything generated (keys, genesis, `.env`, state) is gitignored and
+regenerated on each setup.
 
-**Why it exists:** to understand and validate the tmkms remote-signer path
-before rolling it into production — the same signing model tracked in the tmkms
-migration. It is Docker Compose only (no Ansible), uses a throwaway `dev` chain,
-and never commits secrets or keys.
+### devnet
+
+[`devnet/`](devnet/) is a **3-validator Gno.land devnet** run entirely with
+Docker (validator/validator2/validator3, plus a 4th identity reserved for the
+GovDAO onboarding scenario, a tx-indexer and a gnoweb explorer). Its purpose is
+to exercise every **gnomonitoring** feature end-to-end — block participation
+tracking, downtime/halt alerts, the GovDAO watcher, Prometheus metrics and the
+Telegram bots — before merging changes to production. It also hosts the
+**production softsign + Unix-socket tmkms sidecar** reference setup.
+
+One-time setup: `GNO_REPO_PATH=/path/to/gno ./bootstrap.sh`, then
+`docker compose up -d`. See [`devnet/README.md`](devnet/README.md) for the full
+workflow, reset procedures, local dev accounts and the scripted test scenarios
+(`make help`).
+
+### tmkms-lab
+
+[`tmkms-lab/`](tmkms-lab/) is a smaller **2-VM experiment** that stands up a
+single-validator chain (plus one sentry) and **externalizes the validator's
+consensus signing to [tmkms](https://github.com/iqlusioninc/tmkms)** over TCP:
+the private consensus key lives on a second VM, not inside the gnoland
+container. Its purpose is to understand and validate the tmkms remote-signer
+path before rolling it into production.
 
 See [`tmkms-lab/README.md`](tmkms-lab/README.md) for the full 2-VM walkthrough
 (image requirements, bootstrap, key exchange, verification).
