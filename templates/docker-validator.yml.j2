@@ -22,15 +22,10 @@ services:
       MAX_PEERS: 2
       INBOUND: 0
 {% if tmkms_enabled | default(false) | bool %}
-      # Externalize consensus signing to the tmkms sidecar (entrypoint.sh turns
-      # these into the tmkms_listener config fields, listen_addr last).
+      # Externalize consensus signing to the same-host tmkms sidecar
+      # (entrypoint.sh turns these into the tmkms_listener fields, listen_addr last).
       TMKMS_CHAIN_ID: "{{ tmkms_chain_id }}"
-{% if tmkms_transport | default('uds') == 'tcp' %}
-      TMKMS_LISTEN_ADDR: "tcp://0.0.0.0:{{ tmkms_listen_port | default(26659) }}"
-      TMKMS_ALLOWED_KMS_PUBKEYS: "{{ tmkms_allowed_kms_pubkeys | join(',') }}"
-{% else %}
       TMKMS_LISTEN_ADDR: "unix://{{ tmkms_socket_path | default('/run/gnoland/privval.sock') }}"
-{% endif %}
 {% endif %}
 
   otel-collector:
