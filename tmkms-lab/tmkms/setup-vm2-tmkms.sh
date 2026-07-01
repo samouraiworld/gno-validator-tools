@@ -7,23 +7,13 @@
 #
 # Usage (VM2):
 #   VAL_PEERID=<hex> IP_GNO=192.168.56.10 CHAIN_ID=dev ./setup-vm2-tmkms.sh
+#   ./setup-vm2-tmkms.sh show   # affiche seulement le ed25519 kms-identity en place
 set -euo pipefail
 cd "$(dirname "$0")"
 
-: "${VAL_PEERID:?set VAL_PEERID=<validator peer-id hex from VM1>}"
-IP_GNO="${IP_GNO:-192.168.56.10}"
-CHAIN_ID="${CHAIN_ID:-dev}"
-
-mkdir -p secrets
-[ -f secrets/consensus.key ] || { echo "ERREUR: secrets/consensus.key manquant (scp depuis VM1: tmkms-share/consensus.key)"; exit 1; }
-
-echo "==> Building tmkms:local (si absent)"
-docker image inspect tmkms:local >/dev/null 2>&1 || docker build -t tmkms:local .
-
-echo "==> kms-identity : dérivation de la pubkey (génère la clé si absente)"
-# Idempotent: si la clé existe, on relit son seed et on redérive la pubkey
-# (ed25519: pubkey = fonction déterministe du seed) ; sinon on en génère une.
-# Dans les deux cas on affiche ed25519:<hex> (= la valeur TMKMS_ALLOW de VM1).
+# Helper kms-identity : dérive l'ed25519:<hex> (= TMKMS_ALLOW de VM1). La pubkey
+# est une fonction déterministe du seed, donc une clé existante est relue (jamais
+# régénérée) ; en mode génération, le seed est créé s'il manque.
 cat > /tmp/kmsgen.go <<'GO'
 package main
 import ("crypto/ed25519";"crypto/rand";"encoding/base64";"encoding/hex";"fmt";"os")
@@ -40,7 +30,33 @@ func main(){
  p:=ed25519.NewKeyFromSeed(s).Public().(ed25519.PublicKey)
  fmt.Println("ed25519:"+hex.EncodeToString(p)) }
 GO
-ALLOW=$(docker run --rm -v "$PWD/secrets:/s" -v /tmp/kmsgen.go:/kmsgen.go:ro golang:1-alpine go run /kmsgen.go /s/kms-identity.key)
+kms_pubkey() {
+  docker run --rm -v "$PWD/secrets:/s" -v /tmp/kmsgen.go:/kmsgen.go:ro \
+    golang:1-alpine go run /kmsgen.go /s/kms-identity.key
+}
+
+# Sous-commande 'show' : affiche seulement le ed25519 de la clé déjà en place.
+# Pas de build, pas de VAL_PEERID, pas de rendu tmkms.toml, et surtout aucune
+# génération (erreur si la clé est absente, pour ne pas créer d'identité par
+# accident quand on voulait juste la consulter).
+if [ "${1:-}" = "show" ]; then
+  [ -f secrets/kms-identity.key ] || { echo "kms-identity.key absente (rien à afficher)" >&2; exit 1; }
+  kms_pubkey
+  exit 0
+fi
+
+: "${VAL_PEERID:?set VAL_PEERID=<validator peer-id hex from VM1>}"
+IP_GNO="${IP_GNO:-192.168.56.10}"
+CHAIN_ID="${CHAIN_ID:-dev}"
+
+mkdir -p secrets
+[ -f secrets/consensus.key ] || { echo "ERREUR: secrets/consensus.key manquant (scp depuis VM1: tmkms-share/consensus.key)"; exit 1; }
+
+echo "==> Building tmkms:local (si absent)"
+docker image inspect tmkms:local >/dev/null 2>&1 || docker build -t tmkms:local .
+
+echo "==> kms-identity : dérivation de la pubkey (génère la clé si absente)"
+ALLOW=$(kms_pubkey)
 
 echo "==> Rendu de tmkms.toml"
 sed -e "s/__CHAIN__/$CHAIN_ID/g" -e "s/__PEERID__/$VAL_PEERID/g" -e "s#__IP_GNO__#$IP_GNO#g" \

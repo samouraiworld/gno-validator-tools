@@ -91,6 +91,14 @@ and prints the `ed25519:...` value (= the `TMKMS_ALLOW` to paste on VM1).
 > same `ed25519:...` from the stored seed instead of generating a new one — so
 > you recover the original `TMKMS_ALLOW` with no validator-side change. It only
 > mints a fresh identity when the key is missing.
+>
+> To just **look up** the in-place identity without running the full setup
+> (no build, no `VAL_PEERID`, no `tmkms.toml` render, and it never generates a
+> key), use the `show` subcommand:
+>
+> ```bash
+> ./setup-vm2-tmkms.sh show      # prints the ed25519:... of the current key (errors if absent)
+> ```
 
 Then start the signer **with compose**:
 
