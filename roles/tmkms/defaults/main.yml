@@ -1,22 +1,11 @@
 ---
 # defaults file for roles/tmkms
-# Externalize the validator's consensus signing to a tmkms sidecar container
-# (softsign backend). The validator (gnoland) LISTENS; tmkms DIALS in and signs.
-# See README.md.
+# Externalize the validator's consensus signing to a same-host tmkms sidecar
+# (softsign backend, Unix-socket transport). gnoland LISTENS on the socket;
+# tmkms DIALS in and signs. For the 2-VM TCP variant see ../../tmkms-lab/.
 
-# Master switch. When false the role is a no-op and the compose templates omit
-# the tmkms service (validator signs locally as before).
+# Master switch. false → role is a no-op and the compose omits the tmkms service.
 tmkms_enabled: false
-
-# Signing backend. Only "softsign" is realistic on cloud hosts with no USB port
-# (YubiHSM/Ledger need physical access).
-tmkms_backend: softsign
-
-# Transport between gnoland and tmkms:
-#   uds → same-host sidecar over a Unix socket (auth = filesystem perms). Simple.
-#   tcp → tmkms on a separate host (auth = allowlist + peer-id pin). Requires
-#         tmkms_validator_ip, tmkms_validator_peer_id, tmkms_allowed_kms_pubkeys.
-tmkms_transport: uds
 
 # Chain id — MUST match genesis / config.toml tmkms_listener.chain_id.
 tmkms_chain_id: ""
@@ -26,25 +15,11 @@ tmkms_remote_dir: "/root/{{ gno_dir }}/tmkms"
 tmkms_node_data_dir: "/root/{{ gno_dir }}/gnoland-data"
 tmkms_node_secrets_dir: "{{ tmkms_node_data_dir }}/secrets"
 
-# tmkms image. Built locally from the role's Dockerfile by default. For an
-# airgapped/hardened validator, prebuild + push to a registry, then set
-# tmkms_image to that ref and tmkms_build_image: false.
+# tmkms image. Built on the host from files/Dockerfile by default. For an
+# airgapped/hardened host, prebuild + push to a registry, set tmkms_image to
+# that ref and tmkms_build_image: false.
 tmkms_image: "tmkms:local"
 tmkms_build_image: true
 
-# Consensus key source:
-#   reslice → derive the softsign key from the node's priv_validator_key.json
-#             (same key registered in genesis). Idempotent: never overwritten.
-#   file    → copy a key staged on the controller (e.g. exported from Vaultwarden
-#             beforehand) given by tmkms_consensus_key_src.
-tmkms_consensus_key_source: reslice
-tmkms_consensus_key_src: ""
-
 # UDS socket path inside the containers (shared via the tmkms/run mount).
 tmkms_socket_path: "/run/gnoland/privval.sock"
-
-# TCP settings (only used when tmkms_transport == 'tcp').
-tmkms_listen_port: 26659
-tmkms_validator_ip: ""           # interface gnoland binds the TCP listener to
-tmkms_validator_peer_id: ""      # hex peer id pinned in tmkms's addr
-tmkms_allowed_kms_pubkeys: []    # gnoland allowlist (hex ed25519); ignored on UDS
