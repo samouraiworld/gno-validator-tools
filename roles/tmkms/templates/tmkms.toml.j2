@@ -1,7 +1,7 @@
 # {{ ansible_managed }}
-# tmkms config for the validator signer (softsign backend).
+# tmkms config for the validator signer — softsign, same-host Unix socket.
 # chain_id MUST match the gnoland genesis / config.toml tmkms_listener.chain_id.
-# Paths are absolute and refer to the mounts in docker-compose.yml:
+# Paths refer to the mounts in the validator compose:
 #   ./tmkms/tmkms.toml -> /tmkms/tmkms.toml
 #   ./tmkms/secrets    -> /tmkms/secrets
 #   ./tmkms/run        -> /run/gnoland (shared privval socket dir)
@@ -19,13 +19,7 @@ path = "/tmkms/secrets/consensus.key"
 
 [[validator]]
 chain_id = "{{ tmkms_chain_id }}"
-{% if tmkms_transport == 'tcp' %}
-# TCP: peer-id pin is mandatory (tmkms signs only for your node).
-addr = "tcp://{{ tmkms_validator_peer_id }}@{{ tmkms_validator_ip }}:{{ tmkms_listen_port }}"
-{% else %}
-# Same-host UDS: no peer-id; socket filesystem perms are the auth boundary.
-addr = "unix://{{ tmkms_socket_path }}"
-{% endif %}
+addr = "unix://{{ tmkms_socket_path }}"   # same-host UDS; socket perms = auth
 secret_key = "/tmkms/secrets/kms-identity.key"
 protocol_version = "v0.34"
 reconnect = true
