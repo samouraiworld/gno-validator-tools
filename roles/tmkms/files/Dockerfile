@@ -1,3 +1,5 @@
+# NOTE: kept byte-identical to tmkms-lab/tmkms/Dockerfile (and vice-versa).
+# If you change one, change the other.
 # tmkms signer image (softsign backend).
 # 0.15.0 has no default features, so softsign must be requested explicitly.
 # Built on Debian so the binary links the same glibc family as the gnoland image.

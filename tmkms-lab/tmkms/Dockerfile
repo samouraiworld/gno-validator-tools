@@ -1,3 +1,5 @@
+# NOTE: kept byte-identical to roles/tmkms/files/Dockerfile (and vice-versa).
+# If you change one, change the other.
 # tmkms signer image (softsign). Built on VM2.
 FROM rust:slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
