@@ -1,8 +1,8 @@
 ---
-# tasks file for roles/tmkms
-# Runs on the validator host (as root, like the rest of the validator play),
-# BEFORE `docker compose up`. Prepares the tmkms image, config and signer keys
-# so the sidecar can sign for the validator.
+# tasks file for roles/tmkms — same-host softsign sidecar (Unix socket).
+# Runs on the validator host (as root) BEFORE `docker compose up`. Prepares the
+# tmkms image, config and signer keys so the sidecar can sign for the validator.
+# For the 2-VM TCP variant see ../../tmkms-lab/ (manual runbook).
 
 - name: Assert chain_id is set
   ansible.builtin.assert:
@@ -14,7 +14,6 @@
   ansible.builtin.apt:
     name: jq
     state: present
-  when: tmkms_consensus_key_source == 'reslice'
 
 - name: Create tmkms directories on the validator
   ansible.builtin.file:
@@ -26,9 +25,8 @@
     - "{{ tmkms_remote_dir }}/secrets"
     - "{{ tmkms_remote_dir }}/run"
 
-# The reslice needs the node's priv_validator_key.json. Generate the node
-# secrets if they don't exist yet (idempotent: skipped once present). This is
-# the SAME key whose pubkey goes into genesis.
+# The reslice needs the node's priv_validator_key.json (same key whose pubkey
+# goes into genesis). Generate node secrets if missing (idempotent).
 - name: Ensure node secrets exist (source of the consensus key + genesis pubkey)
   ansible.builtin.command:
     cmd: >-
@@ -58,7 +56,6 @@
     dest: "{{ tmkms_remote_dir }}/tmkms.toml"
     mode: "0600"
 
-# --- Consensus key (softsign) ------------------------------------------------
 # reslice: gnoland stores base64 of the 64-byte seed‖pubkey; softsign wants
 # base64 of just the 32-byte seed. Idempotent (creates:) so an existing signing
 # key is never silently changed — remove consensus.key to force a refresh after
@@ -69,21 +66,12 @@
       jq -r '.priv_key.value' "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
       | base64 -d | head -c 32 | base64 -w0 > "{{ tmkms_remote_dir }}/secrets/consensus.key"
     creates: "{{ tmkms_remote_dir }}/secrets/consensus.key"
-  when: tmkms_consensus_key_source == 'reslice'
-
-- name: Deploy consensus key from a controller-staged file (e.g. Vaultwarden export)
-  ansible.builtin.copy:
-    src: "{{ tmkms_consensus_key_src }}"
-    dest: "{{ tmkms_remote_dir }}/secrets/consensus.key"
-    mode: "0600"
-  when: tmkms_consensus_key_source == 'file'
 
 - name: Lock down consensus key
   ansible.builtin.file:
     path: "{{ tmkms_remote_dir }}/secrets/consensus.key"
     mode: "0600"
 
-# --- tmkms SecretConnection identity ----------------------------------------
 - name: Generate tmkms identity key (32 random bytes, base64) once
   ansible.builtin.shell:
     cmd: "head -c 32 /dev/urandom | base64 -w0 > {{ tmkms_remote_dir }}/secrets/kms-identity.key"
@@ -97,6 +85,6 @@
 - name: tmkms sidecar prepared
   ansible.builtin.debug:
     msg: >-
-      tmkms ready ({{ tmkms_transport }} / {{ tmkms_backend }}, chain_id={{ tmkms_chain_id }}).
+      tmkms ready (uds / softsign, chain_id={{ tmkms_chain_id }}).
       The validator's tmkms_listener is set by entrypoint.sh via TMKMS_* env;
       `docker compose up -d` will start the tmkms sidecar.
