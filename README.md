@@ -15,6 +15,7 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 7. [Variables reference](#variables-reference)
 8. [Security considerations](#security-considerations)
 9. [Adding a new validator](#adding-a-new-validator)
+10. [Labs (tmkms-lab)](#labs-tmkms-lab)
 
 ---
 
@@ -943,3 +944,21 @@ Logs from the new validator will appear in Grafana under the label `job: samoura
 | 6 | `5b-deploy-validator-proxies.yaml` | Sentry (idempotent) |
 | 7 | `5-deploy-monitoring-stack.yaml --tags config` | Monitoring server |
 | 8 | `6-deploy-promtail-sentry.yaml -e target=gno-validator-2` | New validator only |
+
+---
+
+## Labs (tmkms-lab)
+
+[`tmkms-lab/`](tmkms-lab/) is a **self-contained experiment**, separate from the
+production Ansible workflow above. It stands up a single-validator gnoland chain
+(plus one sentry) across two VMs and **externalizes the validator's consensus
+signing to [tmkms](https://github.com/iqlusioninc/tmkms)** over TCP: the private
+consensus key lives on a second VM, not inside the gnoland container.
+
+**Why it exists:** to understand and validate the tmkms remote-signer path
+before rolling it into production — the same signing model tracked in the tmkms
+migration. It is Docker Compose only (no Ansible), uses a throwaway `dev` chain,
+and never commits secrets or keys.
+
+See [`tmkms-lab/README.md`](tmkms-lab/README.md) for the full 2-VM walkthrough
+(image requirements, bootstrap, key exchange, verification).

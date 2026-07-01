@@ -1,0 +1,49 @@
+# tmkms-lab — VM1: self-contained validator + sentry. The validator's consensus
+# signing is externalized to tmkms on VM2 (192.168.56.11) over TCP. Run
+# ./bootstrap.sh first (generates secrets/genesis/.env), fill TMKMS_ALLOW in
+# .env from VM2, start tmkms on VM2, then: docker compose up -d
+name: tmkms-lab
+
+services:
+  validator:
+    image: "${GNO_IMAGE:-chain:latest}"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26657:26657        # RPC (local)
+      - 0.0.0.0:26659:26659          # privval TCP listener — reachable by VM2 tmkms
+    volumes:
+      - ./validator/entrypoint.sh:/entrypoint.sh:ro
+      - ./validator/config.toml:/gnoroot/config.toml:ro
+      - ./validator/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./validator/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-crew-1"
+      PERSISTENT_PEERS: "${PERSISTENT_PEERS_VALIDATOR}"
+      PEX: "false"
+      MAX_PEERS: 2
+      INBOUND: 1
+      # tmkms over TCP (VM2 dials in)
+      TMKMS_CHAIN_ID: "${CHAIN_ID:-dev}"
+      TMKMS_LISTEN_ADDR: "tcp://0.0.0.0:26659"
+      TMKMS_ALLOWED_KMS_PUBKEYS: "${TMKMS_ALLOW}"
+
+  sentry:
+    image: "${GNO_IMAGE:-chain:latest}"
+    restart: on-failure
+    ports:
+      - 127.0.0.1:26658:26657        # RPC (local)
+    volumes:
+      - ./sentry/entrypoint.sh:/entrypoint.sh:ro
+      - ./sentry/config.toml:/gnoroot/config.toml:ro
+      - ./sentry/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./sentry/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "samourai-dev-sentry-1"
+      PERSISTENT_PEERS: "${PERSISTENT_PEERS_SENTRY}"
+      # Keep the validator hidden behind the sentry (don't advertise its addr).
+      PRIVATE_PEER_IDS: "${PRIVATE_PEER_IDS_SENTRY}"
+      # Self-contained dev chain → no public seeds.
+      SEEDS: ""
+      PEX: "false"

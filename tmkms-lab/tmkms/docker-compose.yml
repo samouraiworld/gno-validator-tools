@@ -1,0 +1,16 @@
+# tmkms-lab — VM2: tmkms remote signer (softsign) for the VM1 validator.
+# Equivalent to the `docker run` printed by setup-vm2-tmkms.sh, but with
+# restart: always so tmkms self-heals (and survives VM1 restarting the
+# validator or starting in either order). Run setup-vm2-tmkms.sh first to
+# build tmkms:local, generate secrets/, and render tmkms.toml.
+name: tmkms-lab-signer
+
+services:
+  tmkms:
+    image: tmkms:local
+    container_name: tmkms
+    restart: always
+    command: ["start", "-c", "/tmkms/tmkms.toml"]
+    volumes:
+      - ./tmkms.toml:/tmkms/tmkms.toml:ro
+      - ./secrets:/tmkms/secrets
