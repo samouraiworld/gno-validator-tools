@@ -74,7 +74,7 @@
 
 - name: Generate tmkms identity key (32 random bytes, base64) once
   ansible.builtin.shell:
-    cmd: "head -c 32 /dev/urandom | base64 -w0 > {{ tmkms_remote_dir }}/secrets/kms-identity.key"
+    cmd: "head -c 32 /dev/urandom | base64 -w0 > '{{ tmkms_remote_dir }}/secrets/kms-identity.key'"
     creates: "{{ tmkms_remote_dir }}/secrets/kms-identity.key"
 
 - name: Lock down kms-identity key
