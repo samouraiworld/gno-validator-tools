@@ -35,7 +35,12 @@ if [ -z "${GNO_CONTRIBS_IMAGE:-}" ] && [ -f .env ]; then
 fi
 GNO_CONTRIBS_IMAGE="${GNO_CONTRIBS_IMAGE:-gno-contribs:local}"
 DOCKER_USER="$(id -u):$(id -g)"
-NODES=(validator validator2 validator3 validator4)
+# snapshotter is a non-signing full node (not in the genesis validator set,
+# like validator4). Listing it here gives it its own node_key + a config.toml
+# and genesis.json copy via the loops below; it never gets a genesis validator
+# slot (the address/pubkey extraction and generate-genesis.sh only cover
+# validator1-3). It is the source node for snapshot.sh.
+NODES=(validator validator2 validator3 validator4 snapshotter)
 # Nodes whose consensus signing is externalized to a tmkms sidecar (softsign).
 # Their signer material lives under tmkms/<node>/secrets/ and is (re)generated
 # here from the node's own validator key, so it always matches genesis.

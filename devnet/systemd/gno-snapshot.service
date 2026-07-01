@@ -1,0 +1,24 @@
+# Oneshot service that captures a single chain snapshot. Triggered by
+# gno-snapshot.timer (hourly). Install as a --user unit or edit User=/paths for
+# a system unit.
+#
+# Install (per-user, no root):
+#   mkdir -p ~/.config/systemd/user
+#   sed "s#__DEVNET_DIR__#$PWD#g" systemd/gno-snapshot.service > ~/.config/systemd/user/gno-snapshot.service
+#   cp systemd/gno-snapshot.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gno-snapshot.timer
+#   systemctl --user list-timers gno-snapshot.timer     # verify
+#
+# __DEVNET_DIR__ is replaced with the absolute path of this devnet/ directory.
+[Unit]
+Description=Capture a gno chain snapshot from the snapshotter node
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__DEVNET_DIR__
+ExecStart=/usr/bin/make snapshot
+# Don't let a single failed capture disable the timer.
+SuccessExitStatus=0

@@ -23,9 +23,10 @@ PG_USER      := gnomonitoring
 PG_DB        := gnomonitoring
 DEV_CHAIN    := dev
 
-.PHONY: help up up-validator4 ensure-bootstrap down reinit regen-genesis full-reinit clean-db clean-all status logs \
+.PHONY: help up up-validator4 up-snapshotter ensure-bootstrap down reinit regen-genesis full-reinit clean-db clean-all status logs \
         stop-val1 stop-val2 stop-val3 stop-val4 \
         start-val1 start-val2 start-val3 start-val4 \
+        snapshot snapshots restore-fullnode restore-validator \
         scenario1 scenario2 scenario2-restart scenario3 scenario3-restart \
         scenario4 scenario4-restart scenario5 scenario-mute
 
@@ -41,6 +42,13 @@ help:
 	@echo "  make clean-all         - nuke ALL generated state (keys/genesis/config) -> full regen on next full-reinit"
 	@echo "  make status            - docker compose ps + height/catching_up per node"
 	@echo "  make logs              - follow logs of all containers"
+	@echo ""
+	@echo "Snapshots & restore (see SNAPSHOT-RESTORE.md):"
+	@echo "  make up-snapshotter    - start the dedicated non-signing snapshot node (profile snapshot)"
+	@echo "  make snapshot          - capture one chain snapshot from the snapshotter (+ rotate)"
+	@echo "  make snapshots         - list available snapshot archives"
+	@echo "  make restore-fullnode NODE=<svc> SNAP=<file> - restore a full node from a snapshot"
+	@echo "  make restore-validator SNAP=<file>           - restore the validator (tmkms checklist prompt)"
 	@echo ""
 	@echo "Per-validator control:"
 	@echo "  make stop-val1..4      - docker compose stop validator[N]"
@@ -75,6 +83,11 @@ up: ensure-bootstrap
 
 up-validator4: ensure-bootstrap
 	docker compose --profile phase2 up -d validator4
+
+# Start the dedicated non-signing snapshot follower. It syncs the chain over
+# P2P; snapshot.sh briefly stops it to tar its db (no impact on validators).
+up-snapshotter: ensure-bootstrap
+	docker compose --profile snapshot up -d snapshotter
 
 down:
 	docker compose down
@@ -114,14 +127,14 @@ clean-db:
 # None of this is committed (see .gitignore). Uses a throwaway alpine container
 # to delete files that docker may have created as root.
 clean-all: clean-db
-	docker compose --profile phase2 down -v 2>/dev/null || true
-	@echo "🧨 Removing all generated devnet artifacts (keys, genesis, config, keybase)..."
+	docker compose --profile phase2 --profile snapshot down -v 2>/dev/null || true
+	@echo "🧨 Removing all generated devnet artifacts (keys, genesis, config, keybase, snapshots)..."
 	docker run --rm -v "$(CURDIR):/work" -w /work alpine sh -c \
-		'rm -rf validator/gnoland-data validator2/gnoland-data validator3/gnoland-data validator4/gnoland-data \
-		        validator/genesis.json validator2/genesis.json validator3/genesis.json validator4/genesis.json \
-		        validator/config.toml validator2/config.toml validator3/config.toml validator4/config.toml \
+		'rm -rf validator/gnoland-data validator2/gnoland-data validator3/gnoland-data validator4/gnoland-data snapshotter/gnoland-data \
+		        validator/genesis.json validator2/genesis.json validator3/genesis.json validator4/genesis.json snapshotter/genesis.json \
+		        validator/config.toml validator2/config.toml validator3/config.toml validator4/config.toml snapshotter/config.toml \
 		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk \
-		        tmkms/*/secrets tmkms/run \
+		        tmkms/*/secrets tmkms/run snapshots \
 		        init-govdao.gno propose-validator4.gno'
 	@echo "✅ Clean. Run 'make full-reinit' to regenerate everything from scratch."
 
@@ -152,6 +165,26 @@ start-val3:
 	docker compose start validator3
 start-val4:
 	docker compose start validator4
+
+# Capture a chain snapshot from the snapshotter node (db only, wal excluded),
+# then rotate to the RETENTION most recent. Override retention: RETENTION=48 make snapshot
+snapshot:
+	./snapshot.sh
+
+snapshots:
+	@ls -1t snapshots/*.tar.zst 2>/dev/null || echo "No snapshots yet (run 'make up-snapshotter' then 'make snapshot')."
+
+# Restore any full node from a snapshot: make restore-fullnode NODE=snapshotter SNAP=snapshots/<file>
+restore-fullnode:
+	@test -n "$(NODE)" || { echo "Set NODE=<service> (e.g. NODE=snapshotter)"; exit 2; }
+	@test -n "$(SNAP)" || { echo "Set SNAP=<snapshots/file.tar.zst>"; exit 2; }
+	./restore.sh "$(NODE)" "$(SNAP)"
+
+# Restore the validator (prompts the tmkms anti-double-sign checklist):
+#   make restore-validator SNAP=snapshots/<file>
+restore-validator:
+	@test -n "$(SNAP)" || { echo "Set SNAP=<snapshots/file.tar.zst>"; exit 2; }
+	./restore.sh validator "$(SNAP)"
 
 scenario1: up-validator4
 	@echo ">>> Step 1: initialize GovDAO (InitWithUsers)"
