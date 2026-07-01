@@ -9,7 +9,11 @@ production — in particular for validating the
 It ships:
 
 - **validator / validator2 / validator3** — genesis validators
-  (`samourai-crew-1/2/3`, voting power 10/10/11)
+  (`samourai-crew-1/2/3`, voting power 10/10/11). `validator`'s consensus
+  signing is externalized to a **tmkms sidecar** (see below); validator2/3 sign
+  locally.
+- **tmkms** — remote signer for `validator` (softsign backend over a Unix
+  socket), the reference for the production tmkms migration
 - **validator4** — a 4th identity (`samourai-crew-4`) reserved for the
   Phase 2 "new validator via GovDAO" scenario, not part of the genesis
   validator set, started on demand via the `phase2` compose profile
@@ -77,6 +81,47 @@ Check progress:
 ```bash
 curl -s http://localhost:26658/status | jq '.result.sync_info'
 ```
+
+## tmkms sidecar (validator consensus signing)
+
+`validator`'s consensus key is **not** used by gnoland directly — signing is
+externalized to a **tmkms** sidecar container, exactly as planned for
+production. This is the same-host, simplest variant of the model:
+
+- **Backend:** `softsign` (no HSM) — the consensus key sits in
+  `tmkms/validator/secrets/consensus.key`.
+- **Transport:** Unix-domain socket (`unix:///run/gnoland/privval.sock`) shared
+  via the `./tmkms/run` volume mounted into both containers. Both run under the
+  **same UID** so the `0600` socket is reachable; the socket permissions are the
+  only auth boundary (no `allowed_kms_pubkeys` needed on UDS).
+- **Wiring:** gnoland listens because `validator` sets
+  `TMKMS_LISTEN_ADDR=unix:///run/gnoland/privval.sock` and `TMKMS_CHAIN_ID=dev`
+  ([docker-compose.yml](docker-compose.yml)); tmkms dials that socket with
+  `reconnect = true` ([tmkms/validator/tmkms.toml](tmkms/validator/tmkms.toml)),
+  so start order doesn't matter. `protocol_version = "v0.34"` (gnoland speaks
+  only v0.34).
+
+The signer material under `tmkms/validator/secrets/` (`consensus.key`,
+`kms-identity.key`, `consensus_state.json`) is **gitignored** and (re)generated
+by `bootstrap.sh`: it reslices the node's `priv_validator_key.json` into the
+softsign base64 format. Because it's derived from the node key, a fresh setup
+(new keys) regenerates it in lock-step.
+
+**Requires a gnoland image with tmkms support** (the `tmkms_listener` config,
+merged in gno master — PR #5718 / commit `a870686e4`). Verify with:
+
+```bash
+docker run --rm --entrypoint /usr/bin/gnoland \
+  gno-validator:local start -h 2>&1 | grep -c skip-genesis-sig   # must be 1
+```
+
+**Revert `validator` to local signing** (no sidecar): unset `TMKMS_CHAIN_ID`
+and `TMKMS_LISTEN_ADDR` on the `validator` service and stop the `tmkms`
+container. gnoland then signs with its own `priv_validator_key.json`.
+
+> For the **2-VM TCP** variant of this setup (signer on a separate host, with
+> the `allowed_kms_pubkeys` pin that TCP requires), see
+> [`../tmkms-lab/`](../tmkms-lab/).
 
 ## Resetting the chain
 
