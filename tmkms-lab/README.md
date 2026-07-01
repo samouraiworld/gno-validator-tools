@@ -86,6 +86,20 @@ VAL_PEERID=<hex peer-id from step 1> IP_GNO=192.168.56.10 CHAIN_ID=dev ./setup-v
 Builds `tmkms:local`, generates the `kms-identity` key, renders `tmkms.toml`,
 and prints the `ed25519:...` value (= the `TMKMS_ALLOW` to paste on VM1).
 
+> **Restore / re-run.** The step is idempotent: if `secrets/kms-identity.key`
+> already exists (e.g. restored from backup), the script **re-derives** the
+> same `ed25519:...` from the stored seed instead of generating a new one — so
+> you recover the original `TMKMS_ALLOW` with no validator-side change. It only
+> mints a fresh identity when the key is missing.
+>
+> To just **look up** the in-place identity without running the full setup
+> (no build, no `VAL_PEERID`, no `tmkms.toml` render, and it never generates a
+> key), use the `show` subcommand:
+>
+> ```bash
+> ./setup-vm2-tmkms.sh show      # prints the ed25519:... of the current key (errors if absent)
+> ```
+
 Then start the signer **with compose**:
 
 ```bash
@@ -133,6 +147,43 @@ The VM1 `docker-compose.yml` reads these variables via `${...}`.
 **VM2**: no `.env` — the tmkms config lives in `tmkms.toml` (rendered by
 `setup-vm2-tmkms.sh`) and the `docker-compose.yml` in the `tmkms/` folder.
 
+## Backup — what to save absolutely
+
+With tmkms the validator's survival no longer depends on VM1 but on **VM2**
+(the signer). Back these up:
+
+| File | Where | Criticality | If lost |
+| --- | --- | --- | --- |
+| `secrets/consensus.key` | **VM2** | 🔴 **THE validator key** | validator identity gone for good |
+| `secrets/consensus_state.json` | **VM2** | 🔴 anti-double-sign high-water mark | slashing risk on restore |
+| `secrets/kms-identity.key` | **VM2** | 🟠 TCP identity (= `TMKMS_ALLOW`) | regenerate + update `TMKMS_ALLOW` on VM1 |
+| `validator/gnoland-data/secrets/node_key.json` | VM1 | 🟠 P2P peer-id | peer-id changes → fix `*_PEERS` / `PRIVATE_PEER_IDS` |
+
+Regenerable (not secret, but keep to rebuild fast): `genesis.json`,
+`config.toml`, VM1 `.env`, `tmkms.toml`.
+
+> ⚠️ **Anti-slashing on restore:** restore `consensus_state.json` too. Its
+> `height/round/step` must be **≥** what the key already signed — an older
+> state can double-sign. Never run two tmkms off the same `consensus.key`.
+
+`kms-identity.key` is 🟠 (not 🔴): if saved, `./setup-vm2-tmkms.sh show`
+re-derives its `TMKMS_ALLOW` with no validator-side change; if lost, just
+regenerate and update the allowlist.
+
+### VM1 — what you can delete
+
+Once tmkms signs (see *Verify*) **and** `consensus.key` is backed up on VM2,
+the validator no longer needs its consensus key:
+
+- ✅ delete `validator/gnoland-data/secrets/priv_validator_key.json` (unused in
+  `tmkms_listener` mode — the key lives on VM2).
+- ❌ keep `node_key.json` (peer-id), `genesis.json`, `config.toml`.
+- `priv_validator_state.json` is not authoritative here (VM2's
+  `consensus_state.json` is) — harmless to keep, no need to back it up.
+- Record the validator address/pubkey **first**
+  (`gnoland secrets get validator_key.pub_key`) — that command reads the file
+  you're about to delete. It also lives in `genesis.json`.
+
 ## Start from scratch (image change, corrupted secrets…)
 
 Secrets from one image aren't necessarily readable by another (e.g.
@@ -158,6 +209,6 @@ Regenerating the secrets **changes the consensus key** → redo steps 2→4
 - 1 tmkms = 1 key = 1 validator (the sentry does not sign).
 - `protocol_version = "v0.34"` on both sides: gnoland pins it to v0.34. tmkms
   prints a deprecation *warning* — keep it on v0.34 anyway.
-- You may delete `validator/gnoland-data/secrets/priv_validator_key.json`
-  after genesis (the key lives on VM2) — keep `node_key.json`.
+- Backup / deletion of validator secrets: see *Backup — what to save
+  absolutely* above (VM2 holds the consensus key; VM1 keeps only `node_key.json`).
 - Nothing is committed (see `.gitignore`).
