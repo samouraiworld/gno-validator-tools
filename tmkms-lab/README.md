@@ -86,6 +86,12 @@ VAL_PEERID=<hex peer-id from step 1> IP_GNO=192.168.56.10 CHAIN_ID=dev ./setup-v
 Builds `tmkms:local`, generates the `kms-identity` key, renders `tmkms.toml`,
 and prints the `ed25519:...` value (= the `TMKMS_ALLOW` to paste on VM1).
 
+> **Restore / re-run.** The step is idempotent: if `secrets/kms-identity.key`
+> already exists (e.g. restored from backup), the script **re-derives** the
+> same `ed25519:...` from the stored seed instead of generating a new one — so
+> you recover the original `TMKMS_ALLOW` with no validator-side change. It only
+> mints a fresh identity when the key is missing.
+
 Then start the signer **with compose**:
 
 ```bash
