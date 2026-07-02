@@ -1,0 +1,25 @@
+# Rendered by roles/snapshotter — dedicated NON-signing full node used only as a
+# snapshot source. It follows the chain over P2P via the local sentry; snapshot.sh
+# briefly stops it to tar its db (no impact on the validator/sentry).
+# Pinned project name so `docker compose` acts on this stack regardless of cwd.
+name: gno-snapshotter
+
+services:
+  snapshotter:
+    image: "{{ snapshotter_image }}"
+    restart: on-failure
+    # RPC bound to localhost only — never exposed.
+    ports:
+      - "{{ snapshotter_rpc_bind }}:26657"
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "snapshotter"
+      # Peers of the real network — at minimum the local sentry. Filled in .env.
+      SEEDS: "${SEEDS}"
+      PERSISTENT_PEERS: "${PERSISTENT_PEERS}"
+      PEX: "true"

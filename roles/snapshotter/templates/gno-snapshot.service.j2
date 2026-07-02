@@ -1,0 +1,14 @@
+# Rendered by roles/snapshotter. Oneshot: capture a snapshot, then push it to
+# Scaleway Object Storage. Triggered by gno-snapshot.timer. Runs as root (docker
+# access) from the snapshotter deploy dir. Both steps run in order; if the
+# capture fails, the push is skipped (unit fails).
+[Unit]
+Description=Capture a gno chain snapshot and push it to Scaleway Object Storage
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ snapshotter_dir }}
+ExecStart={{ snapshotter_dir }}/snapshot.sh
+ExecStart={{ snapshotter_dir }}/push-to-s3.sh

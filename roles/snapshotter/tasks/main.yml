@@ -1,0 +1,112 @@
+---
+# tasks file for roles/snapshotter — deploy a non-signing snapshot node + the
+# capture/push scripts and the systemd timer on the sentry host.
+# The role stages everything but does NOT start the node or enable the timer:
+# the operator fills .env (peers + Scaleway credentials) and starts it. No
+# secret is ever rendered by this role (only snapshotter.env.example).
+
+- name: Assert required variables are set
+  ansible.builtin.assert:
+    that:
+      - snapshotter_chain_id | length > 0
+    fail_msg: "snapshotter_chain_id must be set (must match the genesis chain id)."
+
+- name: Ensure snapshot dependencies are installed
+  ansible.builtin.apt:
+    name: [jq, zstd, curl, rclone]
+    state: present
+    update_cache: true
+
+- name: Create snapshotter directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ snapshotter_dir }}", mode: "0755" }
+    - { path: "{{ snapshotter_dir }}/gnoland-data", mode: "0755" }
+    - { path: "{{ snapshotter_dir }}/snapshots", mode: "0755" }
+
+# genesis.json + config.toml come from the already-deployed sentry on the same
+# host, so this role stays free of network-specific genesis material.
+- name: Assert the source node dir has genesis.json + config.toml
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ snapshotter_source_node_dir }}/genesis.json"
+    - "{{ snapshotter_source_node_dir }}/config.toml"
+  register: _src_files
+
+- name: Fail if genesis.json / config.toml missing on the source node dir
+  ansible.builtin.fail:
+    msg: >-
+      {{ item.item }} not found. Deploy the sentry first, or set
+      snapshotter_source_node_dir to a node dir that has genesis.json + config.toml.
+  when: not item.stat.exists
+  loop: "{{ _src_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Copy genesis.json + config.toml from the source node dir
+  ansible.builtin.copy:
+    src: "{{ snapshotter_source_node_dir }}/{{ item }}"
+    dest: "{{ snapshotter_dir }}/{{ item }}"
+    remote_src: true
+    mode: "0644"
+  loop:
+    - genesis.json
+    - config.toml
+
+- name: Stage the follower entrypoint
+  ansible.builtin.copy:
+    src: entrypoint.sh
+    dest: "{{ snapshotter_dir }}/entrypoint.sh"
+    mode: "0755"
+
+- name: Stage restore.sh
+  ansible.builtin.copy:
+    src: restore.sh
+    dest: "{{ snapshotter_dir }}/restore.sh"
+    mode: "0755"
+
+- name: Render docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.snapshotter.yml.j2
+    dest: "{{ snapshotter_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Render snapshot.sh + push-to-s3.sh
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ snapshotter_dir }}/{{ item }}"
+    mode: "0755"
+  loop:
+    - snapshot.sh
+    - push-to-s3.sh
+
+# .env.example only — placeholders, no secret. The operator copies it to .env.
+- name: Render snapshotter.env.example
+  ansible.builtin.template:
+    src: snapshotter.env.example.j2
+    dest: "{{ snapshotter_dir }}/snapshotter.env.example"
+    mode: "0644"
+
+- name: Render systemd units (service + timer)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - gno-snapshot.service
+    - gno-snapshot.timer
+  notify: reload systemd
+
+# Deliberately NOT started/enabled here — see the debug message.
+- name: Snapshotter staged
+  ansible.builtin.debug:
+    msg: >-
+      Snapshotter staged in {{ snapshotter_dir }}. Next (operator):
+      1) cp snapshotter.env.example .env && chmod 600 .env  (fill peers + Scaleway keys)
+      2) docker compose --env-file .env up -d   (wait for catching_up=false on {{ snapshotter_rpc_bind }})
+      3) systemctl enable --now gno-snapshot.timer
+      Set the bucket lifecycle (STANDARD->GLACIER 7d, expire 90d) in the Scaleway console.

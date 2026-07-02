@@ -1,0 +1,43 @@
+---
+# defaults file for roles/snapshotter
+# Deploys a dedicated NON-signing full node ("snapshotter") on the sentry host,
+# plus the scripts + systemd timer that capture hourly chain snapshots and push
+# them to Scaleway Object Storage. The node is NOT started by the role: the
+# operator fills .env (peers + Scaleway credentials) and starts it (see README).
+
+# Master switch. false → role is a no-op (play skips it).
+snapshotter_enabled: false
+
+# Chain id — MUST match the genesis / the chain the sentry follows.
+snapshotter_chain_id: ""
+
+# Runtime image (same gnoland image as the validator/sentry).
+snapshotter_image: "gno-validator:local"
+
+# Dedicated deploy dir (kept separate from the sentry's own dir).
+snapshotter_dir: "/root/{{ gno_dir }}-snapshotter"
+
+# Source node dir on the SAME host to copy genesis.json + config.toml from
+# (the sentry deployed by the sentry playbook). Keeps genesis network-specific
+# material out of this role.
+snapshotter_source_node_dir: "/root/{{ gno_dir }}"
+
+# RPC bind — localhost only (never exposed; snapshot.sh reads the height here).
+snapshotter_rpc_bind: "127.0.0.1:26662"
+
+# Local snapshot retention (number of archives kept on disk before rotation).
+snapshotter_retention_local: 24
+
+# Capture cadence for the systemd timer.
+snapshotter_timer_oncalendar: "hourly"
+
+# --- Scaleway Object Storage (rclone) ------------------------------------
+# Credentials are NOT set here: they go in .env on the host (SCW_ACCESS_KEY /
+# SCW_SECRET_KEY), filled by the operator. Only non-secret defaults live here.
+snapshotter_s3_bucket: ""                       # e.g. gno-snapshots-prod
+snapshotter_s3_endpoint: "s3.fr-par.scw.cloud"
+snapshotter_s3_region: "fr-par"
+snapshotter_s3_prefix: "{{ inventory_hostname }}/snapshotter"
+
+# Lifecycle (STANDARD → GLACIER after 7 d, expire after 90 d) is configured by
+# the operator in the Scaleway console — NOT by this role. See README.

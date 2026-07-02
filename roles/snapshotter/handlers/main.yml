@@ -1,0 +1,5 @@
+---
+# handlers file for roles/snapshotter
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
