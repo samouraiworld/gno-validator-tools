@@ -12,7 +12,9 @@ INBOUND=${INBOUND:-"40"}
 
 # Gen secrets if not exits
 
-gnoland secrets init
+if [ ! -f ./gnoland-data/secrets/priv_validator_key.json ]; then
+  gnoland secrets init
+fi
 
 # Copy base config
 
