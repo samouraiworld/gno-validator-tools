@@ -11,16 +11,16 @@
 # =============================================================================
 
 - name: Install snapshotter node
-  hosts: gno-sentry
+  hosts: "{{ target | default('gno-sentry') }}"
   become: false
 
   vars:
-    gno_dir: gnoland1
+    gno_dir: devnet
     # Same runtime image as the sentry/validator nodes.
-    gno_image: ghcr.io/gnolang/gno/gnoland:chain-test11
+    gno_image: ghcr.io/gnolang/gno/gnoland:master
     # Enable the role and set the chain id (must match genesis).
     snapshotter_enabled: true
-    snapshotter_chain_id: ""          # <-- set to the deployed chain id
+    snapshotter_chain_id: "dev"          # <-- set to the deployed chain id
     snapshotter_image: "{{ gno_image }}"
     # Scaleway bucket (credentials go in .env on the host, not here).
     snapshotter_s3_bucket: gno-snapshots-prod
