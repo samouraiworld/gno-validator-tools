@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Rendered by roles/snapshotter. Push local snapshot archives to Scaleway Object
+# Storage with rclone. Runs after snapshot.sh (see gno-snapshot.service).
+#
+# Secrets: read ONLY from .env (never committed, never in argv). Credentials are
+# exported as RCLONE_CONFIG_* env vars so they don't appear in the process list.
+# Objects are uploaded in the STANDARD class; the STANDARD→GLACIER transition and
+# expiration are handled by the bucket lifecycle rule you set in the Scaleway
+# console (this script never deletes remote objects).
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+if [ ! -f .env ]; then
+  echo "❌ .env missing — copy snapshotter.env.example to .env and fill it in." >&2
+  exit 1
+fi
+set -a && . ./.env && set +a
+
+: "${SCW_ACCESS_KEY:?set SCW_ACCESS_KEY in .env}"
+: "${SCW_SECRET_KEY:?set SCW_SECRET_KEY in .env}"
+: "${S3_BUCKET:?set S3_BUCKET in .env}"
+S3_ENDPOINT="${S3_ENDPOINT:-{{ snapshotter_s3_endpoint }}}"
+S3_REGION="${S3_REGION:-{{ snapshotter_s3_region }}}"
+S3_PREFIX="${S3_PREFIX:-{{ snapshotter_s3_prefix }}}"
+
+# On-the-fly rclone remote "scw" — no rclone.conf on disk, secrets stay in env.
+export RCLONE_CONFIG_SCW_TYPE="s3"
+export RCLONE_CONFIG_SCW_PROVIDER="Scaleway"
+export RCLONE_CONFIG_SCW_ACCESS_KEY_ID="$SCW_ACCESS_KEY"
+export RCLONE_CONFIG_SCW_SECRET_ACCESS_KEY="$SCW_SECRET_KEY"
+export RCLONE_CONFIG_SCW_ENDPOINT="$S3_ENDPOINT"
+export RCLONE_CONFIG_SCW_REGION="$S3_REGION"
+export RCLONE_CONFIG_SCW_STORAGE_CLASS="STANDARD"
+
+DEST="scw:${S3_BUCKET}/${S3_PREFIX}"
+echo "==> rclone copy snapshots/ -> ${DEST}/ (STANDARD)"
+rclone copy snapshots "$DEST" \
+  --include "*.tar.zst" \
+  --transfers 2 --s3-chunk-size 64M \
+  --stats-one-line
+
+echo "✅ Push complete."

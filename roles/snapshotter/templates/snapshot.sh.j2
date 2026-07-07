@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Rendered by roles/snapshotter. Capture ONE chain snapshot from the local
+# snapshotter node: stop it (consistent LevelDB copy), tar its gnoland-data/db
+# (wal excluded — node-local scratch, rebuilt on start), restart it, rotate.
+# A trap guarantees the node is restarted even if the tar fails.
+#
+# The archive contains ONLY chain data — no secrets. push-to-s3.sh uploads it.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+export COMPOSE_PROJECT_NAME="gno-snapshotter"
+
+NODE="snapshotter"
+DATA_DIR="gnoland-data"
+SNAP_DIR="snapshots"
+RPC="http://{{ snapshotter_rpc_bind }}"
+
+# Optional overrides from .env (RETENTION_LOCAL). .env also holds secrets used by
+# push-to-s3.sh; nothing secret is needed here.
+[ -f .env ] && set -a && . ./.env && set +a
+RETENTION="${RETENTION_LOCAL:-{{ snapshotter_retention_local }}}"
+
+if [ ! -d "$DATA_DIR/db" ]; then
+  echo "❌ $DATA_DIR/db not found — is the snapshotter started and synced?" >&2
+  exit 1
+fi
+mkdir -p "$SNAP_DIR"
+
+HEIGHT="$(curl -s --max-time 5 "$RPC/status" \
+  | jq -r '.result.sync_info.latest_block_height // "unknown"' 2>/dev/null || echo unknown)"
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+OUT="$SNAP_DIR/${HEIGHT}-${TS}.tar.zst"
+
+restart_snapshotter() { docker compose start "$NODE" >/dev/null 2>&1 || true; }
+trap restart_snapshotter EXIT
+
+echo "==> Stopping $NODE for a consistent LevelDB copy (height=$HEIGHT)"
+docker compose stop "$NODE" >/dev/null
+
+echo "==> Archiving $DATA_DIR/db -> $OUT"
+tar -C "$DATA_DIR" -c db | zstd -q -T0 -o "$OUT"
+
+echo "==> Restarting $NODE"
+docker compose start "$NODE" >/dev/null
+trap - EXIT
+
+echo "==> Rotating local (keep $RETENTION most recent)"
+ls -1t "$SNAP_DIR"/*.tar.zst 2>/dev/null | tail -n +"$((RETENTION + 1))" | while read -r old; do
+  echo "    rm $old"; rm -f "$old"
+done
+
+echo "✅ Snapshot written: $OUT ($(du -h "$OUT" | cut -f1))"

@@ -1,0 +1,33 @@
+---
+# =============================================================================
+# Install the snapshotter node (dedicated non-signing follower on the sentry
+# host) + hourly chain snapshots pushed to Scaleway Object Storage.
+#
+#   ansible-playbook -i inventory.yaml 8-install-snapshotter.yml --tags snapshotter
+#
+# The role stages the stack + scripts + systemd timer but does NOT start the
+# node. Finish on the host: fill .env (peers + Scaleway keys), `docker compose
+# up -d`, `systemctl enable --now gno-snapshot.timer`. See roles/snapshotter/README.md.
+# =============================================================================
+
+- name: Install snapshotter node
+  hosts: "{{ target | default('gno-sentry') }}"
+  become: false
+
+  vars:
+    gno_dir: devnet
+    # Same runtime image as the sentry/validator nodes.
+    gno_image: ghcr.io/gnolang/gno/gnoland:master
+    # Enable the role and set the chain id (must match genesis).
+    snapshotter_enabled: true
+    snapshotter_chain_id: "dev"          # <-- set to the deployed chain id
+    snapshotter_image: "{{ gno_image }}"
+    # Scaleway bucket (credentials go in .env on the host, not here).
+    snapshotter_s3_bucket: gno-snapshots-prod
+
+  tasks:
+    - name: Deploy snapshotter role
+      ansible.builtin.include_role:
+        name: snapshotter
+      when: snapshotter_enabled | default(false) | bool
+      tags: [snapshotter]

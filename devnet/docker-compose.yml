@@ -102,6 +102,33 @@ services:
       PERSISTENT_PEERS: "${SEEDS_VALIDATOR4}"
       PEX: "true"
 
+  # Dedicated NON-signing full node used only as a snapshot source. It follows
+  # the chain over P2P like any other follower (it is NOT in the genesis
+  # validator set, modelled on validator4). snapshot.sh briefly stops it, tars
+  # its db, and restarts it — so snapshotting never touches the validators or
+  # sentries. Kept behind the "snapshot" profile so it is not started by the
+  # default `docker compose up -d`.
+  #   docker compose --profile snapshot up -d snapshotter
+  snapshotter:
+    image: "${GNO_IMAGE:-gno-validator:local}"
+    restart: on-failure
+    user: "${DOCKER_USER:-1000:1000}"
+    profiles: ["snapshot"]
+    ports:
+      - 127.0.0.1:26662:26657
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./snapshotter/config.toml:/gnoroot/config.toml:ro
+      - ./snapshotter/genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./snapshotter/gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "snapshotter"
+      # Follow all three genesis validators (same peer set as validator4).
+      SEEDS: "${SEEDS_VALIDATOR4}"
+      PERSISTENT_PEERS: "${SEEDS_VALIDATOR4}"
+      PEX: "true"
+
   tx-indexer:
     image: "ghcr.io/gnolang/tx-indexer@sha256:174d52f27059723c1161a4edff7d15b4d23ed436d7bbcf01f5c219431b0dfbc5"
     container_name: tx-indexer

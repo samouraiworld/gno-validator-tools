@@ -1,0 +1,14 @@
+# Rendered by roles/snapshotter. Triggers gno-snapshot.service on a schedule.
+# Persistent=true catches up a missed run after downtime; RandomizedDelaySec
+# spreads the capture off the exact hour.
+[Unit]
+Description=Scheduled gno chain snapshot ({{ snapshotter_timer_oncalendar }})
+
+[Timer]
+OnCalendar={{ snapshotter_timer_oncalendar }}
+Persistent=true
+RandomizedDelaySec=120
+Unit=gno-snapshot.service
+
+[Install]
+WantedBy=timers.target

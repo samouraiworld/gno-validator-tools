@@ -1,0 +1,14 @@
+# Hourly trigger for gno-snapshot.service. Persistent=true catches up a missed
+# run (e.g. host was asleep) on the next boot. RandomizedDelaySec spreads load
+# a little so the capture doesn't always land exactly on the hour.
+[Unit]
+Description=Hourly gno chain snapshot
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+Unit=gno-snapshot.service
+
+[Install]
+WantedBy=timers.target

@@ -9,6 +9,9 @@
 */genesis.json
 */config.toml
 
+# Chain snapshot archives produced by snapshot.sh (regenerated on a timer).
+snapshots/
+
 # Top-level generated artifacts
 genesis.json
 genesis_balances.txt
