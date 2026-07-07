@@ -12,7 +12,7 @@ MAX_PEERS=${MAX_PEERS:-"40"}
 INBOUND=${INBOUND:-"40"}
 
 # Generate node secrets (node_key) if missing.
-if [ ! -f ./gnoland-data/secrets/priv_validator_key.json ]; then
+if [ ! -f ./gnoland-data/secrets/node_key.json ]; then
   gnoland secrets init
 fi
 

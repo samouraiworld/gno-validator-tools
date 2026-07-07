@@ -12,7 +12,7 @@ INBOUND=${INBOUND:-"40"}
 
 # Gen secrets if not exits
 
-if [ ! -f ./gnoland-data/secrets/priv_validator_key.json ]; then
+if [ ! -f ./gnoland-data/secrets/node_key.json ]; then
   gnoland secrets init
 fi
 
