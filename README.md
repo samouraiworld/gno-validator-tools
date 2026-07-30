@@ -1,12 +1,12 @@
 # Gnoland Validator & Sentry Node Deployment
 
-Infrastructure-as-Code pour préparer des serveurs Gnoland validateur/sentry
-avec Docker, Alloy (logs + métriques) et UFW. Ansible ne gère que le **socle
-serveur** ; le déploiement des nœuds gnoland eux-mêmes (docker-compose,
-`entrypoint.sh`, `config.toml`, `genesis.json`) se fait à la main, décrit
-dans un runbook dédié.
+Infrastructure-as-Code to prepare Gnoland validator/sentry servers with
+Docker, Alloy (logs + metrics) and UFW. Ansible only manages the **server
+foundation**; deploying the gnoland nodes themselves (docker-compose,
+`entrypoint.sh`, `config.toml`, `genesis.json`) is done by hand, described in
+a dedicated runbook.
 
-**Target environment:** Ubuntu ou Debian (testé sur Scaleway).
+**Target environment:** Ubuntu or Debian (tested on Scaleway).
 
 ## Table of Contents
 
@@ -31,45 +31,46 @@ dans un runbook dédié.
 
 ```
 ┌───────────────────────────────────────────┐     ┌───────────────────────────────────────────┐
-│ Validator Node (VLAN privé)                │     │ Sentry Node (public)                       │
+│ Validator Node (private VLAN)              │     │ Sentry Node (public)                       │
 │                                             │     │                                             │
-│   gnoland (Docker) ── P2P :26656 (privé) ──┼─────┼──► gnoland (Docker) ◄── public P2P :26656   │
+│   gnoland (Docker) ── private P2P :26656 ──┼─────┼──► gnoland (Docker) ◄── public P2P :26656   │
 │   otel-collector → 127.0.0.1:9464          │     │   node_exporter  → 127.0.0.1:9100           │
 │   node_exporter  → 127.0.0.1:9100          │     │                                             │
-│   Alloy: scrape local + push (relay/direct)│     │   Alloy: scrape local + push (direct)       │
+│   Alloy: local scrape + push (relay/direct)│     │   Alloy: local scrape + push (direct)       │
 └───────────────────┬─────────────────────────┘   └───────────────────┬─────────────────────────┘
                     │                                                   │
-                    └── logs Docker + métriques (remote_write) ─────────┘
+                    └── Docker logs + metrics (remote_write) ───────────┘
                                           │
-                               reverse proxy MANUEL
-                            (hors périmètre Ansible —
-                          voir NETWORK_AND_REVERSE_PROXY.md)
+                               MANUAL reverse proxy
+                            (out of Ansible scope —
+                          see NETWORK_AND_REVERSE_PROXY.md)
                                           │
                                           ▼
-                          Backend logs + métriques (VictoriaMetrics
-                          en remote_write, ou équivalent — pas déployé
-                          par ce dépôt)
+                          Logs + metrics backend (VictoriaMetrics
+                          remote_write, or equivalent — not deployed
+                          by this repo)
 ```
 
-Ansible ne déploie plus ni reverse proxy, ni TLS, ni stack de monitoring
-(Loki/Prometheus/Grafana) : voir [`legacy/`](legacy/README.md) pour ce qui a
-été retiré et pourquoi, et [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md)
-pour la mise en place manuelle du VLAN privé et du reverse proxy.
+Ansible no longer deploys any reverse proxy, TLS, or monitoring stack
+(Loki/Prometheus/Grafana): see [`legacy/`](legacy/README.md) for what was
+removed and why, and [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md)
+for the manual private VLAN and reverse proxy setup.
 
 ### Data flows
 
-**Logs et métriques :** Grafana Alloy (rôle `alloy`, inclus dans
-`base_setup.yml`) scrape localement `node_exporter`/`otel-collector`
-(bindés en `127.0.0.1`, jamais exposés) et les logs Docker des conteneurs
-gnoland, puis pousse le tout en remote_write/push :
-- **mode `direct`** — pousse directement vers le backend, avec son propre
-  bearer token (typiquement la sentry, qui a une sortie Internet directe) ;
-- **mode `relay`** — pousse vers un reverse proxy monté à la main sur la
-  sentry (typiquement le validateur, isolé sur le VLAN privé), qui relaie
-  ensuite vers le backend et porte seul le bearer token.
+**Logs and metrics:** Grafana Alloy (`alloy` role, included in
+`base_setup.yml`) scrapes `node_exporter`/`otel-collector` locally (bound to
+`127.0.0.1`, never exposed) and the gnoland containers' Docker logs, then
+pushes everything via remote_write/push:
 
-Aucun port de scrape entrant n'est nécessaire : plus de Prometheus qui vient
-tirer les métriques, plus de Promtail, plus de vhost NGINX par validateur.
+- **`direct` mode** — pushes straight to the backend, with its own bearer
+  token (typically the sentry, which has direct Internet egress);
+- **`relay` mode** — pushes to a reverse proxy set up by hand on the sentry
+  (typically the validator, isolated on the private VLAN), which then relays
+  to the backend and alone holds the bearer token.
+
+No inbound scrape port is needed: no more Prometheus pulling metrics, no
+more Promtail, no more per-validator NGINX vhost.
 
 ---
 
@@ -83,10 +84,10 @@ tirer les métriques, plus de Promtail, plus de vhost NGINX par validateur.
 
 ### Target hosts (validator, sentry)
 
-- Ubuntu 22.04 LTS ou Debian 12+
-- Accès SSH par clé en `root`
-- Accès Internet pendant le déploiement (l'isolation réseau privée vient
-  dans une étape ultérieure, voir `NETWORK_AND_REVERSE_PROXY.md`)
+- Ubuntu 22.04 LTS or Debian 12+
+- Key-based SSH access as `root`
+- Internet access during deployment (private network isolation comes in a
+  later step, see `NETWORK_AND_REVERSE_PROXY.md`)
 
 ---
 
@@ -94,42 +95,41 @@ tirer les métriques, plus de Promtail, plus de vhost NGINX par validateur.
 
 ```bash
 cp inventory.yaml.example inventory.yaml
-# éditer inventory.yaml : IPs, ufw_ports_app, variables alloy_*, tmkms_* si besoin
+# edit inventory.yaml: IPs, ufw_ports_app, alloy_*/tmkms_* variables as needed
 ```
 
-`inventory.yaml` est gitignoré — il contient de vraies IPs et éventuellement
-des tokens. Voir `inventory.yaml.example` pour le détail des variables
-(`alloy_*`, `ufw_*`, `tmkms_*`).
+`inventory.yaml` is gitignored — it holds real IPs and possibly tokens. See
+`inventory.yaml.example` for the variable details (`alloy_*`, `ufw_*`,
+`tmkms_*`).
 
 ---
 
 ## Deployment workflow
 
-### Étape 1 — Socle serveur
+### Step 1 — Server foundation
 
 ```bash
 ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
 ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
 ```
 
-Installe : paquets système + alias shell (`base_setup`), Docker Engine +
-Compose v2 (`docker`), Go 1.25.0 + binaire gnoland compilé depuis les
-sources (`gnoland`), pare-feu UFW (`ufw`), Node Exporter en `127.0.0.1:9100`
-(`node_exporter`), Grafana Alloy — scrape local + push logs/métriques
+Installs: system packages + shell aliases (`base_setup`), Docker Engine +
+Compose v2 (`docker`), Go 1.25.0 + gnoland binary built from source
+(`gnoland`), UFW firewall (`ufw`), Node Exporter on `127.0.0.1:9100`
+(`node_exporter`), Grafana Alloy — local scrape + push logs/metrics
 (`alloy`).
 
-Ne déploie **aucun** docker-compose applicatif, aucun reverse proxy, aucun
-secret.
+Deploys **no** application docker-compose, no reverse proxy, no secret.
 
-### Étape 2 — Déploiement manuel des nœuds gnoland
+### Step 2 — Manual gnoland node deployment
 
-Voir **[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md)** pour la procédure
-complète : initialisation des secrets (`gnoland secrets init`, jamais fait
-par Ansible), copie manuelle de `entrypoint.sh`/`config.toml`/`genesis.json`,
-choix d'une des trois topologies dans [`compose/`](#docker-compose-targets),
-`.env`, démarrage, vérification (`check_status.sh`).
+See **[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md)** for the full
+procedure: secrets initialization (`gnoland secrets init`, never done by
+Ansible), manual copy of `entrypoint.sh`/`config.toml`/`genesis.json`,
+picking one of the topologies in [`compose/`](#docker-compose-targets),
+`.env`, startup, validation (`check_status.sh`).
 
-### Étape 3 — Réseau privé (optionnel, une fois les nœuds validés)
+### Step 3 — Private network (optional, once nodes are validated)
 
 ```bash
 ansible-playbook -i inventory.yaml setup-private-network.yml \
@@ -138,31 +138,35 @@ ansible-playbook -i inventory.yaml setup-private-network.yml \
   -e target=gno-validator -e vlan_id=<vlan_id>
 ```
 
-Voir [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md) pour le
-détail (y compris la mise en place manuelle d'un reverse proxy si besoin) et
-`validator/Network_control.md` pour couper/rétablir l'accès Internet public
-du validateur sans casser le VLAN.
+See [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md) for the
+detail (including manual reverse proxy setup if needed) and
+`validator/Network_control.md` to drop/restore the validator's public
+Internet access without breaking the VLAN.
 
-### Étape 4 — tmkms (optionnel, uniquement pour `compose/validator-sentry-tmkms`)
+### Step 4 — tmkms (optional)
+
+Same-host sidecar (`compose/validator-sentry-tmkms/`) or dedicated signer
+host over TCP (`compose/tmkms-alone/` + `compose/validator-alone/`) — see
+`TMKMS.md` §3/§4:
 
 ```bash
 ansible-playbook -i inventory.yaml setup-tmkms.yml \
   -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
-### Étape 5 — Rétention froide des logs (optionnel, indépendant d'Alloy)
+### Step 5 — Cold log retention (optional, independent of Alloy)
 
 ```bash
 ansible-playbook -i inventory.yaml backup-logs.yaml
 ```
 
-### Étape 6 — Snapshotter (optionnel)
+### Step 6 — Snapshotter (optional)
 
 ```bash
 ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
 ```
 
-Voir `roles/snapshotter/README.md`.
+See `roles/snapshotter/README.md`.
 
 ---
 
@@ -170,67 +174,66 @@ Voir `roles/snapshotter/README.md`.
 
 ### `base_setup.yml`
 
-**Purpose:** Préparer le socle serveur (aucun docker-compose applicatif).
+**Purpose:** Prepare the server foundation (no application docker-compose).
 
 ```bash
 ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
 ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
 ```
 
-**Rôles :** `base_setup`, `docker`, `gnoland`, `ufw`, `node_exporter`, `alloy`.
+**Roles:** `base_setup`, `docker`, `gnoland`, `ufw`, `node_exporter`, `alloy`.
 
 ---
 
 ### `setup-tmkms.yml`
 
-**Purpose:** Préparer le sidecar tmkms (softsign) sur le validateur, avant le
-`docker compose up -d` manuel de `compose/validator-sentry-tmkms/`.
+**Purpose:** Prepare the tmkms sidecar (softsign), same host (uds, default)
+or dedicated signer host (tcp) — before the manual `docker compose up -d`.
 
 ```bash
 ansible-playbook -i inventory.yaml setup-tmkms.yml \
   -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
-**Prérequis :** secrets gnoland du validateur déjà initialisés
-(`gnoland secrets init` manuel) — le rôle échoue explicitement sinon, il ne
-génère jamais de secret.
+**Prerequisites:** the relevant gnoland secrets already initialized
+(`gnoland secrets init` manual) — the role fails explicitly otherwise, it
+never generates a secret. See `TMKMS.md` and `roles/tmkms/README.md`.
 
 ---
 
 ### `setup-private-network.yml`
 
-**Purpose:** Activer l'interface VLAN privée sur un hôte.
+**Purpose:** Activate the private VLAN interface on a host.
 
 ```bash
 ansible-playbook -i inventory.yaml setup-private-network.yml \
   -e target=gno-sentry -e vlan_id=<vlan_id>
 ```
 
-À lancer une fois les nœuds validés en IP publique. Voir
+Run once nodes are validated on their public IP. See
 `NETWORK_AND_REVERSE_PROXY.md`.
 
 ---
 
 ### `backup-logs.yaml`
 
-**Purpose:** Rétention froide des logs, indépendante d'Alloy (fenêtre de
-rétention différente du backend logs/métriques).
+**Purpose:** Cold log retention, independent of Alloy (different retention
+window than the logs/metrics backend).
 
 ```bash
 ansible-playbook -i inventory.yaml backup-logs.yaml
 ```
 
-Déploie `backup.sh` sur le validateur (extraction 24h des logs Docker,
-compression, SCP quotidien vers la sentry) et `rotate.sh` sur la sentry
-(rétention 30 jours), plus une paire de clés SSH validateur→sentry
-auto-générée.
+Deploys `backup.sh` on the validator (24h Docker log extraction,
+compression, daily SCP to the sentry) and `rotate.sh` on the sentry (30-day
+retention), plus an auto-generated validator→sentry SSH key pair.
 
 ---
 
 ### `install-snapshotter.yml`
 
-**Purpose:** Nœud non-signant dédié aux snapshots + push horaire vers
-Scaleway Object Storage. Voir `roles/snapshotter/README.md`.
+**Purpose:** Non-signing node dedicated to snapshots + hourly push to
+Scaleway Object Storage. See `roles/snapshotter/README.md`.
 
 ```bash
 ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
@@ -240,21 +243,22 @@ ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
 
 ## Docker Compose targets
 
-Trois topologies statiques, 100% configurables via `.env` (voir
-[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md) pour la procédure complète) :
+Four static topologies, 100% configurable via `.env` (see
+[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md) for the full procedure):
 
-| Répertoire | Usage |
+| Directory | Usage |
 |---|---|
-| `compose/sentry-alone/` | Sentry publique seule |
-| `compose/validator-alone/` | Validateur seul + otel-collector (pas de sentry co-localisée) |
-| `compose/validator-sentry-tmkms/` | Sentry + validateur + sidecar tmkms (softsign) sur le même hôte |
+| `compose/sentry-alone/` | Public sentry only |
+| `compose/validator-alone/` | Validator only + otel-collector (no co-located sentry) |
+| `compose/validator-sentry-tmkms/` | Sentry + validator + tmkms sidecar (softsign) on the same host |
+| `compose/tmkms-alone/` | Dedicated tmkms signer host (TCP mode), paired with `compose/validator-alone/` |
 
-Ces fichiers ne sont **pas** des templates Jinja2 : ce sont des
-docker-compose classiques (`${VAR}`), poussés à la main sur le serveur avec
-un `.env` rempli à partir du `.env.example` correspondant — même logique que
-`roles/snapshotter/templates/docker-compose.snapshotter.yml.j2` (qui reste
-géré par Ansible, lui, car son besoin est différent : nœud non-signant,
-staging complet par un rôle dédié).
+These files are **not** Jinja2 templates: they're plain docker-compose files
+(`${VAR}`), pushed by hand to the server with a `.env` filled in from the
+matching `.env.example` — the same logic as
+`roles/snapshotter/templates/docker-compose.snapshotter.yml.j2` (which stays
+Ansible-managed, since its need differs: non-signing node, fully staged by a
+dedicated role).
 
 ---
 
@@ -262,91 +266,92 @@ staging complet par un rôle dédié).
 
 ### check_status.sh
 
-**Location:** `validator/check_status.sh` (à copier à la main, voir
+**Location:** `validator/check_status.sh` (copied by hand, see
 `DEPLOYMENT_RUNBOOK.md`)
 
 **Usage:**
 ```bash
-bash check_status.sh <répertoire-du-nœud>
+bash check_status.sh <node-directory>
 ```
 
-Vérifie : `image`/`MONIKER`/`PERSISTENT_PEERS` (+ `SEEDS`/`PRIVATE_PEER_IDS`
-pour une sentry) dans `docker-compose.yml`, les secrets gnoland
-(`gnoland secrets get`), l'état du validateur (`priv_validator_state.json`),
-la présence de `gnoland-data/db`+`wal`, `genesis.json` (SHA256) et
+Checks: `image`/`MONIKER`/`PERSISTENT_PEERS` (+ `SEEDS`/`PRIVATE_PEER_IDS`
+for a sentry) in `docker-compose.yml`, gnoland secrets
+(`gnoland secrets get`), validator state (`priv_validator_state.json`),
+presence of `gnoland-data/db`+`wal`, `genesis.json` (SHA256), and
 `config.toml`.
 
 ---
 
 ## Variables reference
 
-### `inventory.yaml` (voir `inventory.yaml.example`)
+### `inventory.yaml` (see `inventory.yaml.example`)
 
 | Variable | Description |
 | --- | --- |
-| `public_ip` / `private_ip` | IPs de l'hôte |
-| `ufw_ports_app` | Ports applicatifs ouverts publiquement (ex: `[26656]`) |
-| `ufw_ports_moni` / `ufw_allow_ip` | Optionnel — port(s) restreints à une IP unique. Vide par défaut : plus aucun port de scrape entrant n'est requis depuis le passage à Alloy |
-| `alloy_logs_enabled` | Active la pipeline logs Docker (Alloy) |
-| `alloy_log_mode` | `"direct"` (token en dur) ou `"relay"` (via reverse proxy manuel) |
-| `alloy_logs_remote_write_url` | URL cible pour les logs |
-| `alloy_remote_write_mode` | `"direct"` ou `"relay"`, pour les métriques |
-| `alloy_remote_write_url` | URL cible pour les métriques (remote_write) |
-| `alloy_bearer_token` | Token pour le mode `"direct"` |
-| `alloy_containers_filter` | Regex des conteneurs Docker dont les logs sont conservés |
-| `alloy_job_name` | Label `job` sur les logs/métriques |
-| `alloy_metrics_targets` | Liste `{job, service, address}` scrapée localement par Alloy |
-| `tmkms_chain_id` / `tmkms_image` / `tmkms_build_image` | Optionnel — voir `setup-tmkms.yml` |
+| `public_ip` / `private_ip` | Host IPs |
+| `ufw_ports_app` | Publicly opened application ports (e.g. `[26656]`) |
+| `ufw_ports_moni` / `ufw_allow_ip` | Optional — port(s) restricted to a single IP. Empty by default: no inbound scrape port is required anymore since the switch to Alloy |
+| `ufw_tmkms_port` / `ufw_tmkms_signer_ip` | Optional — tmkms TCP signer port, restricted to the signer host's IP (see `TMKMS.md` §4) |
+| `alloy_logs_enabled` | Enables the Docker logs pipeline (Alloy) |
+| `alloy_log_mode` | `"direct"` (hardcoded token) or `"relay"` (via a manual reverse proxy) |
+| `alloy_logs_remote_write_url` | Target URL for logs |
+| `alloy_remote_write_mode` | `"direct"` or `"relay"`, for metrics |
+| `alloy_remote_write_url` | Target URL for metrics (remote_write) |
+| `alloy_bearer_token` | Token for `"direct"` mode |
+| `alloy_containers_filter` | Regex of the Docker containers whose logs are kept |
+| `alloy_job_name` | `job` label on logs/metrics |
+| `alloy_metrics_targets` | List of `{job, service, address}` scraped locally by Alloy |
+| `tmkms_chain_id` / `tmkms_connection_mode` / `tmkms_validator_peer_id` / `tmkms_validator_ip` | Optional — see `setup-tmkms.yml` and `TMKMS.md` |
 
 ### `compose/*/.env.example`
 
-Voir chaque fichier — `IMAGES`, `MONIKER(_*)`, `SEEDS`, `PERSISTENT_PEERS(_*)`,
-`PRIVATE_PEER_IDS`, `TMKMS_CHAIN_ID` selon la topologie.
+See each file — `IMAGES`, `MONIKER(_*)`, `SEEDS`, `PERSISTENT_PEERS(_*)`,
+`PRIVATE_PEER_IDS`, `TMKMS_*` depending on the topology.
 
 ---
 
 ## Security considerations
 
-### Secrets gnoland
+### gnoland secrets
 
-Jamais générés par Ansible. Initialisation manuelle, une fois par nœud :
+Never generated by Ansible. Manual initialization, once per node:
 
 ```bash
 ssh root@<node-ip>
 gnoland secrets init
-gnoland secrets get  # noter node_id, p2p_address, validator_address
+gnoland secrets get  # note node_id, p2p_address, validator_address
 ```
 
-### Fichiers non-secrets par déploiement
+### Non-secret files per deployment
 
-`entrypoint.sh`, `config.toml`, `genesis.json` changent à chaque version de
-gno (build, genesis, liens de téléchargement) — ils sont poussés à la main à
-chaque déploiement (voir `DEPLOYMENT_RUNBOOK.md`), jamais rendus par un
-template Ansible.
+`entrypoint.sh`, `config.toml`, `genesis.json` change with every gno version
+(build, genesis, download links) — they are pushed by hand at each
+deployment (see `DEPLOYMENT_RUNBOOK.md`), never rendered by an Ansible
+template.
 
-### Réseau
+### Network
 
-- P2P (`:26656`) : seul port ouvert publiquement par défaut.
-- RPC (`:26657`) et métriques (`:9100`, `:9464`) : toujours bindés en
-  `127.0.0.1` dans les composes de `compose/` — jamais exposés.
-- Isolation VLAN privée du validateur : voir `NETWORK_AND_REVERSE_PROXY.md`
-  et `validator/Network_control.md`.
+- P2P (`:26656`): the only port open publicly by default.
+- RPC (`:26657`) and metrics (`:9100`, `:9464`): always bound to
+  `127.0.0.1` in the `compose/` composes — never exposed.
+- Validator private VLAN isolation: see `NETWORK_AND_REVERSE_PROXY.md` and
+  `validator/Network_control.md`.
 
 ### tmkms
 
-Le rôle `tmkms` (utilisé par `setup-tmkms.yml`) échoue explicitement si les
-secrets gnoland du validateur n'existent pas encore — il ne les génère
-jamais. Voir `roles/tmkms/README.md`.
+The `tmkms` role (used by `setup-tmkms.yml`) fails explicitly if the
+required gnoland/tmkms key material doesn't exist yet — it never generates
+it. See `TMKMS.md` and `roles/tmkms/README.md`.
 
 ---
 
 ## Vagrant testing
 
-Configuration de test dans `inventory-vagrant.yaml` :
+Test configuration in `inventory-vagrant.yaml`:
 
-| Host | IP | Rôle |
+| Host | IP | Role |
 | --- | --- | --- |
-| `gno-validator` | 192.168.56.10 | Validateur |
+| `gno-validator` | 192.168.56.10 | Validator |
 | `gno-sentry` | 192.168.56.11 | Sentry |
 | `gno-tmkms` | 192.168.56.11 | tmkms (lab) |
 
@@ -356,57 +361,57 @@ vagrant up
 ansible-playbook -i inventory-vagrant.yaml base_setup.yml -e target=gno-sentry
 ansible-playbook -i inventory-vagrant.yaml base_setup.yml -e target=gno-validator
 
-# Secrets (SSH manuel dans chaque VM)
+# Secrets (manual SSH into each VM)
 vagrant ssh gno-sentry -c 'gnoland secrets init && gnoland secrets get'
 vagrant ssh gno-validator -c 'gnoland secrets init && gnoland secrets get'
 
-# Déploiement des nœuds : voir DEPLOYMENT_RUNBOOK.md
+# Node deployment: see DEPLOYMENT_RUNBOOK.md
 ```
 
 ---
 
 ## Local environments (devnet & tmkms-lab)
 
-Deux bacs à sable Docker vivent à côté du flux Ansible de production. Les
-deux sont des chaînes `dev` **autonomes et jetables** qui ne committent
-jamais de secrets — tout ce qui est généré (clés, genesis, `.env`, état) est
-gitignoré et régénéré à chaque setup.
+Two Docker sandboxes live alongside the production Ansible flow. Both are
+**self-contained, throwaway `dev` chains** that never commit secrets —
+everything generated (keys, genesis, `.env`, state) is gitignored and
+regenerated on each setup.
 
 ### devnet
 
-[`devnet/`](devnet/) est un **devnet Gno.land à 3 validateurs** entièrement
-piloté par Docker (validator/validator2/validator3, plus une 4ᵉ identité
-réservée au scénario d'onboarding GovDAO, un tx-indexer et un explorateur
-gnoweb). Son but : exercer de bout en bout chaque fonctionnalité de
-**gnomonitoring** — suivi de participation aux blocs, alertes
-downtime/halt, watcher GovDAO, métriques Prometheus et bots Telegram — avant
-de merger des changements en production. Il héberge aussi la configuration
-de référence **sidecar tmkms softsign + socket Unix**.
+[`devnet/`](devnet/) is a **3-validator Gno.land devnet** entirely driven by
+Docker (validator/validator2/validator3, plus a 4th identity reserved for
+the GovDAO onboarding scenario, a tx-indexer and a gnoweb explorer). Its
+purpose: exercise every **gnomonitoring** feature end-to-end — block
+participation tracking, downtime/halt alerts, the GovDAO watcher, Prometheus
+metrics and Telegram bots — before merging changes to production. It also
+hosts the reference **tmkms softsign + Unix-socket sidecar** configuration.
 
-Setup en une fois : `GNO_REPO_PATH=/path/to/gno ./bootstrap.sh`, puis
-`docker compose up -d`. Voir [`devnet/README.md`](devnet/README.md) pour le
-détail (reset, comptes de dev locaux, scénarios de test scriptés via
+One-time setup: `GNO_REPO_PATH=/path/to/gno ./bootstrap.sh`, then
+`docker compose up -d`. See [`devnet/README.md`](devnet/README.md) for the
+full detail (reset, local dev accounts, scripted test scenarios via
 `make help`).
 
 ### tmkms-lab
 
-[`tmkms-lab/`](tmkms-lab/) est une expérimentation plus petite, **2 VM**, qui
-monte une chaîne mono-validateur (plus une sentry) et **externalise la
-signature consensus vers [tmkms](https://github.com/iqlusioninc/tmkms)** en
-TCP : la clé consensus privée vit sur une seconde VM, pas dans le conteneur
-gnoland. Son but : comprendre et valider le chemin de signature distante
-tmkms avant de le déployer en production.
+[`tmkms-lab/`](tmkms-lab/) is a smaller, **2-VM** experiment that stands up a
+single-validator chain (plus a sentry) and **externalizes consensus signing
+to [tmkms](https://github.com/iqlusioninc/tmkms)** over TCP: the private
+consensus key lives on a second VM, not in the gnoland container. Its
+purpose: understand and validate the remote-signer path before rolling it
+into production. `roles/tmkms` (`tmkms_connection_mode: "tcp"`) reuses this
+exact pattern for production deployment (see `TMKMS.md` §4).
 
-Voir [`tmkms-lab/README.md`](tmkms-lab/README.md) pour le déroulé complet
-(pré-requis d'image, bootstrap, échange de clés, vérification).
+See [`tmkms-lab/README.md`](tmkms-lab/README.md) for the full 2-VM
+walkthrough (image requirements, bootstrap, key exchange, verification).
 
 ---
 
 ## legacy/
 
-[`legacy/`](legacy/README.md) regroupe ce qui a été retiré du périmètre
-Ansible actif lors de la simplification du dépôt (nginx/TLS/OAuth-proxy,
-stack Loki/Prometheus/Grafana, déploiement automatisé des composes,
-Promtail). Rien n'y est maintenu — c'est une référence historique, pas du
-code à rejouer en l'état. Voir `legacy/README.md` pour le détail et les
-raisons de chaque retrait.
+[`legacy/`](legacy/README.md) groups what was removed from the active
+Ansible scope during the repo simplification (nginx/TLS/OAuth-proxy, the
+Loki/Prometheus/Grafana stack, automated compose deployment, Promtail).
+Nothing there is maintained — it's a historical reference, not code meant to
+be replayed as-is. See `legacy/README.md` for the detail and the reasons for
+each removal.

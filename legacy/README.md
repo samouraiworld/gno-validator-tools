@@ -1,75 +1,74 @@
-# legacy/ — historique, hors périmètre Ansible actif
+# legacy/ — history, out of active Ansible scope
 
-Ce dossier regroupe ce qui a été retiré du flux Ansible actif lors de la
-simplification du dépôt (nginx/TLS/OAuth-proxy hors périmètre, Loki/Prometheus
-remplacés par Alloy → VictoriaMetrics en push, déploiement des composes
-gnoland devenu manuel). Rien n'est perdu : tout reste consultable ici et dans
-l'historique git (`git log --follow -- legacy/...`).
+This directory groups what was removed from the active Ansible flow during
+the repo simplification (nginx/TLS/OAuth-proxy out of scope, Loki/Prometheus
+replaced by Alloy → VictoriaMetrics in push mode, gnoland compose deployment
+turned manual). Nothing is lost: everything remains browsable here and in
+the git history (`git log --follow -- legacy/...`).
 
-**Ces fichiers ne sont plus maintenus ni garantis fonctionnels tels quels.**
-Certains chemins relatifs se sont cassés lors du déplacement (ex: les
-playbooks de `legacy/playbooks/` référencent des templates via des chemins
-relatifs à leur ancien emplacement à la racine du dépôt, pas à
-`legacy/templates/`). Ce sont des références figées, pas du code à rejouer
-en l'état.
+**These files are no longer maintained nor guaranteed to work as-is.** Some
+relative paths broke during the move (e.g. the playbooks in
+`legacy/playbooks/` reference templates via paths relative to their former
+location at the repo root, not to `legacy/templates/`). These are frozen
+references, not code meant to be replayed as-is.
 
-## Contenu
+## Contents
 
 ### `roles/`
-- `nginx/` — reverse proxy générique (vhosts par site).
-- `nginx-prometheus/` — exporter Prometheus pour NGINX (`:9113`).
-- `auth2-proxy/` — OAuth2 Proxy (protection Google OAuth des dashboards).
-- `generate_cert_tls/` — automatisation Let's Encrypt (certbot + nginx).
+- `nginx/` — generic reverse proxy (per-site vhosts).
+- `nginx-prometheus/` — Prometheus exporter for NGINX (`:9113`).
+- `auth2-proxy/` — OAuth2 Proxy (Google OAuth protection for dashboards).
+- `generate_cert_tls/` — Let's Encrypt automation (certbot + nginx).
 
-Retirés du périmètre car : plus de reverse proxy ni de TLS géré par Ansible
-(choix assumé, voir `NETWORK_AND_REVERSE_PROXY.md` à la racine — mise en
-place manuelle si besoin). `nginx-prometheus`, `auth2-proxy` et
-`generate_cert_tls` n'étaient déjà plus invoqués par aucun playbook actif
-avant ce déplacement.
+Removed from scope because: no reverse proxy or TLS is managed by Ansible
+anymore (deliberate choice, see `NETWORK_AND_REVERSE_PROXY.md` at the repo
+root — manual setup if needed). `nginx-prometheus`, `auth2-proxy` and
+`generate_cert_tls` were already unused by any active playbook before this
+move.
 
 ### `playbooks/`
-- `2-install-sentry-node.yml`, `3-install-validator-node.yml` — déploiement
-  automatisé (Ansible) du docker-compose sentry/validateur. Remplacés par le
-  déploiement manuel décrit dans `DEPLOYMENT_RUNBOOK.md` (les fichiers par
-  déploiement — `entrypoint.sh`, `config.toml`, `genesis.json` — changent à
-  chaque version de gno et sont poussés à la main, pas templatés par Ansible).
-- `5-deploy-monitoring-stack.yaml` — stack Loki + Prometheus + Grafana derrière
-  NGINX/Let's Encrypt sur un serveur de monitoring dédié. Dépendait
-  entièrement de `roles/nginx` + certbot, donc hors périmètre.
-- `5b-deploy-validator-proxies.yaml` — vhosts NGINX sur la sentry pour
-  relayer en pull les métriques du validateur vers Prometheus. Obsolète :
-  Alloy pousse désormais les métriques en remote_write, plus besoin de
-  relais pull par validateur/port.
+- `2-install-sentry-node.yml`, `3-install-validator-node.yml` — automated
+  (Ansible) deployment of the sentry/validator docker-compose. Replaced by
+  the manual deployment described in `DEPLOYMENT_RUNBOOK.md` (the
+  per-deployment files — `entrypoint.sh`, `config.toml`, `genesis.json` —
+  change with every gno version and are pushed by hand, not templated by
+  Ansible).
+- `5-deploy-monitoring-stack.yaml` — Loki + Prometheus + Grafana stack behind
+  NGINX/Let's Encrypt on a dedicated monitoring server. Depended entirely on
+  `roles/nginx` + certbot, hence out of scope.
+- `5b-deploy-validator-proxies.yaml` — NGINX vhosts on the sentry to relay
+  the validator's metrics to Prometheus in pull mode. Obsolete: Alloy now
+  pushes metrics via remote_write, no more need for a pull relay per
+  validator/port.
 - `6-deploy-promtail-direct.yaml`, `6-deploy-promtail-sentry.yaml` —
-  déploiement de Promtail (direct ou relayé par la sentry). Remplacés par le
-  rôle `alloy` (actif, inclus dans `base_setup.yml`), qui couvre à la fois
-  les logs Docker et les métriques.
+  Promtail deployment (direct or relayed through the sentry). Replaced by
+  the `alloy` role (active, included in `base_setup.yml`), which covers both
+  Docker logs and metrics.
 
 ### `templates/`
 - `docker-compose.yml.j2`, `docker-sentry.yml.j2`, `docker-validator.yml.j2`,
-  `docker-validator-standalone.yml.j2` — templates Jinja2 rendus par les
-  playbooks ci-dessus. Remplacés par les composes statiques
-  `.env`-configurables de `compose/` à la racine (plus de rendu Ansible).
-- `nginx_site.conf.j2`, `nginx_site_otel.conf.j2` — vhosts NGINX génériques,
-  déjà orphelins (non référencés par aucun playbook actif) avant ce
-  déplacement.
+  `docker-validator-standalone.yml.j2` — Jinja2 templates rendered by the
+  playbooks above. Replaced by the static, `.env`-configurable composes in
+  `compose/` at the repo root (no more Ansible rendering).
+- `nginx_site.conf.j2`, `nginx_site_otel.conf.j2` — generic NGINX vhosts,
+  already orphaned (not referenced by any active playbook) before this move.
 
 ### `Loki/`
-Templates du stack monitoring (Loki, Prometheus, Grafana, vhosts NGINX
-associés, configs Promtail). Dépendait de `5-deploy-monitoring-stack.yaml`
-et `roles/nginx` — voir ci-dessus.
+Templates for the monitoring stack (Loki, Prometheus, Grafana, associated
+NGINX vhosts, Promtail configs). Depended on
+`5-deploy-monitoring-stack.yaml` and `roles/nginx` — see above.
 
 ### `group_vars/monitoring.yml.example`
-Variables du stack monitoring (`5-deploy-monitoring-stack.yaml`) : versions
-Loki/Prometheus/Grafana, domaines, tokens, listes d'IP autorisées, jobs de
-scrape Prometheus. Plus aucun playbook actif ne cible un groupe
-`monitoring`.
+Variables for the monitoring stack (`5-deploy-monitoring-stack.yaml`):
+Loki/Prometheus/Grafana versions, domains, tokens, allowed IP lists,
+Prometheus scrape jobs. No active playbook targets a `monitoring` group
+anymore.
 
-## Ce qui n'est PAS ici
+## What is NOT here
 
-- `validator/backup.sh`, `validator/rotate.sh` et `backup-logs.yaml` restent
-  **actifs** à la racine du dépôt : ils fournissent une rétention froide des
-  logs indépendante du pipeline Alloy (fenêtre de rétention différente),
-  décision explicite de ne pas les déprécier.
-- Le rôle `snapshotter` et `install-snapshotter.yml` restent actifs et
-  inchangés.
+- `validator/backup.sh`, `validator/rotate.sh` and `backup-logs.yaml` remain
+  **active** at the repo root: they provide cold log retention independent
+  of the Alloy pipeline (different retention window) — a deliberate choice
+  not to deprecate them.
+- The `snapshotter` role and `install-snapshotter.yml` remain active and
+  unchanged.

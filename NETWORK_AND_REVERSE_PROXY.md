@@ -1,13 +1,13 @@
-# Réseau privé & reverse proxy — mise en place manuelle
+# Private network & reverse proxy — manual setup
 
-Ansible ne déploie ni VLAN privé au-delà de l'interface réseau elle-même, ni
-reverse proxy, ni TLS. Ce document explique ce qui reste à faire à la main,
-et pourquoi ce choix est assumé.
+Ansible does not deploy the private VLAN beyond the network interface
+itself, nor any reverse proxy, nor TLS. This document explains what's left
+to do by hand, and why that choice is deliberate.
 
-## 1. Réseau privé (VLAN)
+## 1. Private network (VLAN)
 
-Le playbook `setup-private-network.yml` configure uniquement l'interface
-réseau (`/etc/network/interfaces` + `ifup`) sur un hôte donné :
+The `setup-private-network.yml` playbook only configures the network
+interface (`/etc/network/interfaces` + `ifup`) on a given host:
 
 ```bash
 ansible-playbook -i inventory.yaml setup-private-network.yml \
@@ -17,65 +17,70 @@ ansible-playbook -i inventory.yaml setup-private-network.yml \
   -e target=gno-validator -e vlan_id=<vlan_id>
 ```
 
-`vlan_id` est fourni par l'hébergeur (ex: Scaleway Private Networks). Lancer
-ce playbook **après** avoir validé que les nœuds tournent correctement en
-IP publique — activer le VLAN en cours de déploiement peut couper l'accès
-SSH si mal configuré.
+`vlan_id` is provided by the hosting provider (e.g. Scaleway Private
+Networks). Run this playbook **after** confirming the nodes run correctly on
+their public IP — activating the VLAN mid-deployment can cut SSH access if
+misconfigured.
 
-Une fois le VLAN actif, le validateur peut couper son accès Internet public
-tout en gardant le VLAN privé opérationnel — voir `validator/Network_control.md`
-(copié manuellement sur le validateur, cf. `DEPLOYMENT_RUNBOOK.md`) :
+Once the VLAN is active, the validator can drop its public Internet access
+while keeping the private VLAN operational — see `validator/Network_control.md`
+(copied manually onto the validator, see `DEPLOYMENT_RUNBOOK.md`):
 
 ```bash
 ssh root@<validator-ip>
-ip addr flush dev eno1      # coupe Internet, garde le VLAN
-dhclient eno1                # réactive Internet (utile pour rejouer un playbook)
+ip addr flush dev eno1      # drop Internet, keep the VLAN
+dhclient eno1                # re-enable Internet (useful to re-run a playbook)
 ```
 
-## 2. Pourquoi pas de reverse proxy / TLS via Ansible
+## 2. Why no reverse proxy / TLS via Ansible
 
-Les rôles `nginx`, `nginx-prometheus`, `auth2-proxy` et `generate_cert_tls`
-ont été retirés du périmètre actif (déplacés en historique dans `legacy/`,
-voir `legacy/README.md`). Ce n'est pas un oubli : c'est un choix délibéré
-pour garder ce dépôt concentré sur le strict socle serveur (`base_setup.yml`)
-et le déploiement applicatif (`compose/`). Conséquence assumée : **pas de
-renouvellement Let's Encrypt automatisé pour l'instant**.
+The `nginx`, `nginx-prometheus`, `auth2-proxy` and `generate_cert_tls` roles
+have been removed from the active scope (moved to history under `legacy/`,
+see `legacy/README.md`). This isn't an oversight: it's a deliberate choice to
+keep this repo focused on the strict server foundation (`base_setup.yml`)
+and the application deployment (`compose/`). Accepted consequence: **no
+automated Let's Encrypt renewal for now**.
 
-Si un reverse proxy est nécessaire (typiquement sur la sentry, en frontal
-public), il est installé et maintenu à la main par l'opérateur — nginx,
-Caddy ou autre, au choix. Cas d'usage concrets :
+If a reverse proxy is needed (typically on the sentry, as the public
+front-end), it is installed and maintained by hand by the operator — nginx,
+Caddy, or anything else, your choice. Concrete use cases:
 
-- **Exposer un dashboard ou une API HTTPS** devant la sentry.
-- **Relayer le push d'Alloy** si le validateur est isolé sur le VLAN privé
-  sans sortie Internet directe : le rôle `alloy` supporte déjà nativement
-  ce mode relais (`alloy_log_mode` / `alloy_remote_write_mode: "relay"`,
-  voir `roles/alloy/templates/config.alloy.j2` et les exemples commentés
-  dans `inventory.yaml.example`). Dans ce mode, Alloy sur le validateur
-  pousse vers une URL interne (ex: `http://<sentry_private_ip>/vm/...` ou
-  `.../loki/...`) ; c'est ce reverse proxy monté à la main sur la sentry qui
-  relaie ensuite vers la vraie destination (VictoriaMetrics / backend de
-  logs), en y ajoutant si besoin un token porté uniquement par la sentry —
-  le validateur ne détient jamais ce secret.
-- En mode `"direct"`, Alloy pousse directement vers l'URL finale avec son
-  propre token (`alloy_bearer_token`) — pas de reverse proxy nécessaire côté
-  validateur, mais celui-ci doit alors avoir une sortie Internet directe.
+- **Exposing a dashboard or HTTPS API** in front of the sentry.
+- **Relaying Alloy's push** if the validator is isolated on the private VLAN
+  without direct Internet egress: the `alloy` role already natively supports
+  this relay mode (`alloy_log_mode` / `alloy_remote_write_mode: "relay"`, see
+  `roles/alloy/templates/config.alloy.j2` and the commented examples in
+  `inventory.yaml.example`). In this mode, Alloy on the validator pushes to
+  an internal URL (e.g. `http://<sentry_private_ip>/vm/...` or
+  `.../loki/...`); it's this hand-configured reverse proxy on the sentry that
+  then relays to the real destination (VictoriaMetrics / logs backend),
+  adding a token held only by the sentry if needed — the validator never
+  holds this secret.
+- In `"direct"` mode, Alloy pushes straight to the final URL with its own
+  token (`alloy_bearer_token`) — no reverse proxy needed on the validator
+  side, but it then needs direct Internet egress.
 
-Aucun de ces deux modes ne nécessite de modification du rôle `alloy` : ils
-sont déjà pilotables entièrement par variables d'inventaire.
+Neither mode requires any change to the `alloy` role: both are already fully
+driven by inventory variables.
 
 ## 3. Firewall (UFW)
 
-Le rôle `ufw` (inclus dans `base_setup.yml`) ouvre uniquement :
-- le port SSH (22),
-- les ports applicatifs déclarés dans `ufw_ports_app` (typiquement `26656`
-  pour le P2P gnoland),
-- optionnellement, des ports restreints à une IP unique via `ufw_ports_moni`
-  + `ufw_allow_ip` — mécanisme générique gardé disponible mais **vide par
-  défaut**, puisque plus aucun port de métriques (node_exporter, otel,
-  nginx_exporter) n'a besoin d'être exposé en écoute publique depuis le
-  passage au modèle push (Alloy → remote_write). node_exporter et l'export
-  Prometheus d'otel-collector restent bindés en `127.0.0.1`.
+The `ufw` role (included in `base_setup.yml`) only opens:
 
-Si un reverse proxy manuel est mis en place devant un service, c'est à
-l'opérateur d'ouvrir le port correspondant (`ufw allow <port>` à la main, ou
-via `ufw_ports_app`/`ufw_ports_moni` selon le besoin).
+- the SSH port (22),
+- the application ports declared in `ufw_ports_app` (typically `26656` for
+  gnoland P2P),
+- optionally, ports restricted to a single IP via `ufw_ports_moni` +
+  `ufw_allow_ip` — a generic mechanism kept available but **empty by
+  default**, since no metrics port (node_exporter, otel, nginx_exporter)
+  needs to be exposed for inbound listening anymore since the switch to the
+  push model (Alloy → remote_write). node_exporter and otel-collector's
+  Prometheus export stay bound to `127.0.0.1`.
+- optionally, the tmkms TCP signer port via `ufw_tmkms_port` +
+  `ufw_tmkms_signer_ip`, restricted to the dedicated signer host's IP only
+  (same pattern as above) — see `roles/tmkms` (`tmkms_connection_mode: "tcp"`)
+  and `TMKMS.md` §4.
+
+If a manual reverse proxy is set up in front of a service, it's up to the
+operator to open the matching port (`ufw allow <port>` by hand, or via
+`ufw_ports_app`/`ufw_ports_moni` as needed).
