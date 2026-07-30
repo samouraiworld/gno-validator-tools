@@ -1,0 +1,31 @@
+---
+# =============================================================================
+# Base system setup — Gnoland validator or sentry node
+#
+# Installe uniquement les fondations serveur. Ne déploie ni reverse proxy, ni
+# TLS, ni secrets, ni docker-compose applicatif : voir DEPLOYMENT_RUNBOOK.md
+# pour le déploiement manuel des composes (compose/) une fois cette base prête.
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
+#   ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
+#
+# Variables:
+#   target  - hôte ou groupe d'inventaire à cibler (obligatoire)
+#   gno_dir - répertoire de travail gnoland sous /root (défaut: gnoland1)
+# =============================================================================
+
+- name: Base system setup — Gnoland node
+  hosts: "{{ target }}"
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+
+  roles:
+    - base_setup
+    - docker
+    - gnoland
+    - ufw
+    - node_exporter
+    - alloy
