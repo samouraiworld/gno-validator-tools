@@ -1,3 +1,14 @@
+---
+# Vagrant test inventory — gno-validator-tools
+# See vagrant/Vagrantfile for the VM definitions.
+#
+# NOTE: the Vagrantfile assigns sentry to 192.168.56.9 (not .11) — .11 is the
+# dedicated tmkms signer VM (level-3 TCP test, see TMKMS.md §4). This file
+# used to have gno-sentry at .11 too, colliding with the tmkms VM; fixed.
+#
+# monitoring VM is defined in the Vagrantfile but unused here — the
+# monitoring stack it used to test was removed, see legacy/README.md.
+
 all:
   vars:
     ansible_user: root
@@ -7,35 +18,40 @@ all:
   children:
     validators:
       hosts:
-         gno-validator:
+        gno-validator:
           ansible_host: 192.168.56.10
           public_ip: 192.168.56.10
           private_ip: 192.168.56.10
-          moniker_validator: samourai-crew-1
-          gno_network_mode: public
+          ufw_ports_app: [26656]
           ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/validator/virtualbox/private_key
-          ufw_ports_moni: [26656, 26657]
-          ufw_allow_ip: 192.168.56.11
-    tmkms:
-      hosts:
-         gno-tmkms:
-          ansible_host: 192.168.56.11
-          public_ip: 192.168.56.11
-          private_ip: 192.168.56.11
-          gno_network_mode: public
-          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/tmkms/virtualbox/private_key
-          ufw_ports_moni: [26656, 26657]
-          ufw_allow_ip: 192.168.56.11
-   
+          # tmkms TCP signer port, restricted to the tmkms VM only — used for
+          # the level-3 test (see TMKMS.md §4). Uncomment when testing tcp mode:
+          # ufw_tmkms_port: 26659
+          # ufw_tmkms_signer_ip: 192.168.56.11
+          # Alloy — disabled by default in this test inventory (uncomment to
+          # also exercise the logs/metrics pipeline):
+          # alloy_logs_enabled: true
+          # alloy_log_mode: "direct"
+          # alloy_remote_write_mode: "direct"
+          # alloy_remote_write_url: "<...>"
 
     sentries:
       hosts:
-
         gno-sentry:
+          ansible_host: 192.168.56.9
+          public_ip: 192.168.56.9
+          private_ip: 192.168.56.9
+          ufw_ports_app: [26656]
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
+
+    # Dedicated tmkms signer VM — level-3 TCP test only (TMKMS.md §4). No
+    # gnoland node here; base_setup.yml still builds Go/gnoland on it
+    # unnecessarily since this host only ever runs the tmkms sidecar
+    # (harmless for testing, worth trimming to a smaller playbook later).
+    signers:
+      hosts:
+        gno-tmkms:
           ansible_host: 192.168.56.11
           public_ip: 192.168.56.11
           private_ip: 192.168.56.11
-          gno_sentry_ip: 192.168.56.11
-          gno_network_mode: public
-          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
-          ufw_ports_app: [26656]
+          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/tmkms/virtualbox/private_key
