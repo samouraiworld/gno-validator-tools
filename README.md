@@ -1,8 +1,12 @@
 # Gnoland Validator & Sentry Node Deployment
 
-Infrastructure-as-Code for deploying and managing Gnoland validator and sentry nodes with a complete monitoring stack. Uses Ansible for orchestration and Docker for containerization.
+Infrastructure-as-Code pour préparer des serveurs Gnoland validateur/sentry
+avec Docker, Alloy (logs + métriques) et UFW. Ansible ne gère que le **socle
+serveur** ; le déploiement des nœuds gnoland eux-mêmes (docker-compose,
+`entrypoint.sh`, `config.toml`, `genesis.json`) se fait à la main, décrit
+dans un runbook dédié.
 
-**Target environment:** Ubuntu or Debian servers (tested on Scaleway).
+**Target environment:** Ubuntu ou Debian (testé sur Scaleway).
 
 ## Table of Contents
 
@@ -11,11 +15,13 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 3. [Inventory setup](#inventory-setup)
 4. [Deployment workflow](#deployment-workflow)
 5. [Playbook reference](#playbook-reference)
-6. [Tools & scripts](#tools--scripts)
-7. [Variables reference](#variables-reference)
-8. [Security considerations](#security-considerations)
-9. [Adding a new validator](#adding-a-new-validator)
-10. [Local environments (devnet & tmkms-lab)](#local-environments-devnet--tmkms-lab)
+6. [Docker Compose targets](#docker-compose-targets)
+7. [Tools & scripts](#tools--scripts)
+8. [Variables reference](#variables-reference)
+9. [Security considerations](#security-considerations)
+10. [Vagrant testing](#vagrant-testing)
+11. [Local environments (devnet & tmkms-lab)](#local-environments-devnet--tmkms-lab)
+12. [legacy/](#legacy)
 
 ---
 
@@ -24,57 +30,46 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 ### System topology
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Validator Node (private VLAN)                                        │
-│                                                                      │
-│   gnoland (Docker)                                                   │
-│   OTEL Collector → :9464                                             │
-│   Node Exporter  → :9100                                             │
-│   Promtail ─────────────────┐ (logs to sentry loki-proxy)            │
-└────────────┬────────────────┼──────────────────────────────────────┘
-             │                │
-       P2P :26656      (private VLAN)
-      (private VLAN)         │
-             │                │
-┌────────────▼────────────────▼──────────────────────────────────────┐
-│ Sentry Node (public)                                                │
-│                                                                      │
-│   gnoland (Docker) ◄───── public P2P :26656                          │
-│   Node Exporter      → :9100                                         │
-│   NGINX Exporter     → :9113                                         │
-│   NGINX loki-proxy   → :80  (relays logs to Loki with Bearer token)  │
-│   NGINX proxy vhosts:                                                │
-│     :9200 → validator:9100  (node_exporter relay)                    │
-│     :9464 → validator:9464  (OTEL relay)                             │
-└────────────┬──────────────────────────────────────────────────────┬──┘
-             │                                                       │
-        (private VLAN)                                      HTTPS+Bearer token
-             │                                                       │
-┌────────────▼───────────────────────────────────────────────────────▼──┐
-│ Monitoring Server                                                      │
-│                                                                        │
-│   Docker Compose:                                                      │
-│     Loki        :3100  (log aggregation, localhost only)               │
-│     Prometheus  :9090  (metrics collection, localhost only)            │
-│     Grafana     :3000  (dashboards)                                    │
-│                                                                        │
-│   NGINX vhosts:                                                        │
-│     grafana_domain    → Grafana :3000   (HTTPS + TLS)                  │
-│     loki_domain       → Loki :3100      (HTTPS + Bearer token + IPs)   │
-└────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────┐     ┌───────────────────────────────────────────┐
+│ Validator Node (VLAN privé)                │     │ Sentry Node (public)                       │
+│                                             │     │                                             │
+│   gnoland (Docker) ── P2P :26656 (privé) ──┼─────┼──► gnoland (Docker) ◄── public P2P :26656   │
+│   otel-collector → 127.0.0.1:9464          │     │   node_exporter  → 127.0.0.1:9100           │
+│   node_exporter  → 127.0.0.1:9100          │     │                                             │
+│   Alloy: scrape local + push (relay/direct)│     │   Alloy: scrape local + push (direct)       │
+└───────────────────┬─────────────────────────┘   └───────────────────┬─────────────────────────┘
+                    │                                                   │
+                    └── logs Docker + métriques (remote_write) ─────────┘
+                                          │
+                               reverse proxy MANUEL
+                            (hors périmètre Ansible —
+                          voir NETWORK_AND_REVERSE_PROXY.md)
+                                          │
+                                          ▼
+                          Backend logs + métriques (VictoriaMetrics
+                          en remote_write, ou équivalent — pas déployé
+                          par ce dépôt)
 ```
+
+Ansible ne déploie plus ni reverse proxy, ni TLS, ni stack de monitoring
+(Loki/Prometheus/Grafana) : voir [`legacy/`](legacy/README.md) pour ce qui a
+été retiré et pourquoi, et [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md)
+pour la mise en place manuelle du VLAN privé et du reverse proxy.
 
 ### Data flows
 
-**Logs:**
-- **Sentry relay mode:** Validator → Sentry loki-proxy (:80, private VLAN, HTTP) → Loki (:3100, HTTPS + token)
-- **Direct mode:** Validator → Loki (:443, HTTPS + token)
+**Logs et métriques :** Grafana Alloy (rôle `alloy`, inclus dans
+`base_setup.yml`) scrape localement `node_exporter`/`otel-collector`
+(bindés en `127.0.0.1`, jamais exposés) et les logs Docker des conteneurs
+gnoland, puis pousse le tout en remote_write/push :
+- **mode `direct`** — pousse directement vers le backend, avec son propre
+  bearer token (typiquement la sentry, qui a une sortie Internet directe) ;
+- **mode `relay`** — pousse vers un reverse proxy monté à la main sur la
+  sentry (typiquement le validateur, isolé sur le VLAN privé), qui relaie
+  ensuite vers le backend et porte seul le bearer token.
 
-**Metrics:**
-- Prometheus scrapes Sentry :9100 (node metrics)
-- Prometheus scrapes Sentry :9113 (NGINX metrics)
-- Prometheus scrapes Sentry :9200 (validator node metrics via sentry proxy)
-- Prometheus scrapes Sentry :9464 (validator OTEL metrics via sentry proxy)
+Aucun port de scrape entrant n'est nécessaire : plus de Prometheus qui vient
+tirer les métriques, plus de Promtail, plus de vhost NGINX par validateur.
 
 ---
 
@@ -86,508 +81,180 @@ Infrastructure-as-Code for deploying and managing Gnoland validator and sentry n
 - Python >= 3.10
 - Install: `pip install ansible`
 
-### Target hosts (validator, sentry, monitoring server)
+### Target hosts (validator, sentry)
 
-- Ubuntu 22.04 LTS or Debian 12+
-- SSH key-based access as `root`
-- Internet access during deployment (private network isolation comes in a later step)
-
-### DNS
-
-- A record for `grafana_domain` pointing to monitoring server (required for Let's Encrypt)
-- A record for `loki_domain` pointing to monitoring server (required for Let's Encrypt)
+- Ubuntu 22.04 LTS ou Debian 12+
+- Accès SSH par clé en `root`
+- Accès Internet pendant le déploiement (l'isolation réseau privée vient
+  dans une étape ultérieure, voir `NETWORK_AND_REVERSE_PROXY.md`)
 
 ---
 
 ## Inventory setup
 
-### Add hosts to inventory.yaml
-
-```yaml
-all:
-  vars:
-    ansible_user: root
-
-  children:
-    betanet:
-      hosts:
-        gno-sentry:
-          ansible_host: 1.2.3.4                # public IP for SSH access
-          private_ip: 172.16.12.4              # VLAN IP (set after private network activation)
-        gno-validator:
-          ansible_host: 1.2.3.5                # public IP for SSH access (during deployment)
-          private_ip: 172.16.12.2              # VLAN IP (set after private network activation)
-
-    monitoring:
-      hosts:
-        gno-monitoring:
-          ansible_host: 1.2.3.6                # public IP for SSH access
-```
-
-### Copy and configure group variables
-
 ```bash
-cp group_vars/betanet.yml.example group_vars/betanet.yml
-cp group_vars/monitoring.yml.example group_vars/monitoring.yml
+cp inventory.yaml.example inventory.yaml
+# éditer inventory.yaml : IPs, ufw_ports_app, variables alloy_*, tmkms_* si besoin
 ```
 
-Edit both files with your deployment-specific values:
-- IPs, monikers, domain names
-- Bearer tokens (use `ansible-vault` for encryption)
-- Seed nodes, peer configurations
-
-**Important:** Add both files to `.gitignore` — they contain real IPs and secrets.
+`inventory.yaml` est gitignoré — il contient de vraies IPs et éventuellement
+des tokens. Voir `inventory.yaml.example` pour le détail des variables
+(`alloy_*`, `ufw_*`, `tmkms_*`).
 
 ---
 
 ## Deployment workflow
 
-### Step 1: Base system setup
-
-Deploy base packages, Docker, firewall, and gnoland binary on both nodes:
+### Étape 1 — Socle serveur
 
 ```bash
-# Sentry (with NGINX reverse proxy)
-ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
-
-# Validator
-ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator
+ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
+ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
 ```
 
-This installs:
-- System packages and shell aliases
-- Docker Engine + Docker Compose v2
-- Go 1.25.0 and gnoland binary (built from source)
-- UFW firewall
-- Node Exporter (port 9100)
-- NGINX (sentry only)
+Installe : paquets système + alias shell (`base_setup`), Docker Engine +
+Compose v2 (`docker`), Go 1.25.0 + binaire gnoland compilé depuis les
+sources (`gnoland`), pare-feu UFW (`ufw`), Node Exporter en `127.0.0.1:9100`
+(`node_exporter`), Grafana Alloy — scrape local + push logs/métriques
+(`alloy`).
 
-### Step 2: Initialize gnoland secrets (manual)
+Ne déploie **aucun** docker-compose applicatif, aucun reverse proxy, aucun
+secret.
 
-SSH to each node and initialize blockchain secrets:
+### Étape 2 — Déploiement manuel des nœuds gnoland
+
+Voir **[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md)** pour la procédure
+complète : initialisation des secrets (`gnoland secrets init`, jamais fait
+par Ansible), copie manuelle de `entrypoint.sh`/`config.toml`/`genesis.json`,
+choix d'une des trois topologies dans [`compose/`](#docker-compose-targets),
+`.env`, démarrage, vérification (`check_status.sh`).
+
+### Étape 3 — Réseau privé (optionnel, une fois les nœuds validés)
 
 ```bash
-ssh root@<sentry-ip>
-gnoland secrets init
-gnoland secrets get  # save the node_id
-
-ssh root@<validator-ip>
-gnoland secrets init
-gnoland secrets get  # save the node_id
+ansible-playbook -i inventory.yaml setup-private-network.yml \
+  -e target=gno-sentry -e vlan_id=<vlan_id>
+ansible-playbook -i inventory.yaml setup-private-network.yml \
+  -e target=gno-validator -e vlan_id=<vlan_id>
 ```
 
-**Use the node IDs in the next steps:**
-- Validator node ID → add to sentry's `private_peer_ids` and `validator_p2p_ip`
-- Get seed nodes from gnocore → add to sentry's `seeds`
+Voir [`NETWORK_AND_REVERSE_PROXY.md`](NETWORK_AND_REVERSE_PROXY.md) pour le
+détail (y compris la mise en place manuelle d'un reverse proxy si besoin) et
+`validator/Network_control.md` pour couper/rétablir l'accès Internet public
+du validateur sans casser le VLAN.
 
-### Step 3: Deploy sentry node
+### Étape 4 — tmkms (optionnel, uniquement pour `compose/validator-sentry-tmkms`)
 
 ```bash
-ansible-playbook -i inventory.yaml 2-install-sentry-node.yml \
-  -e private_peer_ids=<validator_node_id> \
-  -e validator_p2p_ip=<validator_ip>
+ansible-playbook -i inventory.yaml setup-tmkms.yml \
+  -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
-The sentry node will:
-- Accept validator as a private peer (hidden from peer exchange)
-- Bootstrap from seed nodes
-- Expose public P2P on :26656
-
-### Step 4: Deploy validator node
+### Étape 5 — Rétention froide des logs (optionnel, indépendant d'Alloy)
 
 ```bash
-ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
-  -e persistent_peers_sentry=<sentry_node_id>@<sentry_ip>:26656
+ansible-playbook -i inventory.yaml backup-logs.yaml
 ```
 
-The validator will:
-- Connect only to the sentry peer
-- Operate in sentry mode (peer exchange disabled, `gno_use_sentry=true`)
-- Not expose P2P publicly
-
-### Step 5: Validate nodes are running
+### Étape 6 — Snapshotter (optionnel)
 
 ```bash
-ssh root@<validator-ip>
-bash /root/check_status.sh gnoland1
-
-ssh root@<sentry-ip>
-bash /root/check_status.sh gnoland1
-docker logs <container_id>
+ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
 ```
 
-### Step 6: Deploy log backup scripts
-
-```bash
-ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
-```
-
-This deploys:
-- `backup.sh` on validator — extracts 24h of logs, compresses, ships to sentry daily at 00:10
-- `rotate.sh` on sentry — enforces 30-day retention on backups
-- SSH key pair for validator→sentry SCP access (auto-generated)
-
-### Step 7: Deploy monitoring stack
-
-Deploy Loki, Prometheus, and Grafana on the monitoring server:
-
-```bash
-# Production (with TLS)
-ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
-  -e @group_vars/monitoring.yml
-
-# Vagrant (HTTP only)
-ansible-playbook -i inventory-vagrant.yaml 5-deploy-monitoring-stack.yaml \
-  -e target=gno-monitoring-test \
-  -e @group_vars/monitoring.yml \
-  --skip-tags tls
-```
-
-This deploys on the monitoring server:
-- Docker Compose stack (Loki + Prometheus + Grafana)
-- NGINX vhosts with TLS (Grafana + Loki)
-- Grafana datasources (auto-provisioned)
-
-And on the sentry:
-- NGINX loki-proxy vhost (:80) — accepts logs from validator, injects Bearer token
-
-### Step 8: Deploy validator metric proxies (optional)
-
-If you want Prometheus to scrape validator metrics via the sentry (recommended for private VLAN):
-
-```bash
-ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml
-```
-
-This requires `validator_proxies` list in sentry inventory:
-
-```yaml
-gno-sentry:
-  validator_proxies:
-    - name: validator-1
-      private_ip: 172.16.12.2
-      node_exporter_port: 9200
-      otel_port: 9464
-```
-
-Prometheus will then scrape:
-- `:9200` (validator node_exporter via sentry)
-- `:9464` (validator OTEL via sentry)
-
-### Step 9: Deploy Promtail on validator
-
-**Option A — Sentry relay mode (recommended for private VLAN):**
-
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml
-```
-
-Logs flow: Validator → Sentry loki-proxy (:80) → Loki. No Bearer token stored on validator.
-
-**Option B — Direct mode (for standalone validators):**
-
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml
-```
-
-Logs flow: Validator → Loki (:443 HTTPS + Bearer token). Token stored on validator at `/etc/promtail/config.yml` (mode 0600).
-
-### Step 10: Activate private VLAN (optional)
-
-After all nodes are running and validated, activate private network isolation:
-
-```bash
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml \
-  -e target=gno-sentry -e vlan_id=<your_vlan_id>
-
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml \
-  -e target=gno-validator -e vlan_id=<your_vlan_id>
-```
-
-The `vlan_id` is provided by your hosting provider (e.g., Scaleway Private Networks console).
-
-Once active, you can disable the validator's internet access while keeping the private VLAN operational:
-
-```bash
-ssh root@<validator-ip>
-
-# Disable internet (keeps private VLAN active)
-ip addr flush dev eno1
-
-# Re-enable if needed (for playbook re-runs)
-dhclient eno1
-```
-
-See `/root/Network_control.md` on the validator for detailed network isolation instructions.
+Voir `roles/snapshotter/README.md`.
 
 ---
 
 ## Playbook reference
 
-### 1-base_setup.yml
+### `base_setup.yml`
 
-**Purpose:** Prepare base system for gnoland nodes.
+**Purpose:** Préparer le socle serveur (aucun docker-compose applicatif).
 
-**Usage:**
 ```bash
-ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
-ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator
+ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-sentry
+ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
 ```
 
-**Roles applied to all targets:**
-- `base_setup` — apt packages, shell aliases
-- `docker` — Docker Engine + Compose v2
-- `node_exporter` — Prometheus exporter (port 9100)
-- `ufw` — UFW firewall rules
-- `gnoland` — Go 1.25.0 + gnoland binary build
-
-**Roles applied when `install_nginx=true`:**
-- `nginx` — NGINX reverse proxy
-
-**Tags:** None (applies all roles)
+**Rôles :** `base_setup`, `docker`, `gnoland`, `ufw`, `node_exporter`, `alloy`.
 
 ---
 
-### 2-install-sentry-node.yml
+### `setup-tmkms.yml`
 
-**Purpose:** Deploy sentry node via Docker Compose.
+**Purpose:** Préparer le sidecar tmkms (softsign) sur le validateur, avant le
+`docker compose up -d` manuel de `compose/validator-sentry-tmkms/`.
 
-**Prerequisites:**
-- `1-base_setup.yml` completed on sentry
-- Secrets initialized manually: `gnoland secrets init && gnoland secrets get`
-- Validator node ID available
-
-**Usage:**
 ```bash
-ansible-playbook -i inventory.yaml 2-install-sentry-node.yml \
-  -e private_peer_ids=<validator_node_id> \
-  -e validator_p2p_ip=<validator_ip>
+ansible-playbook -i inventory.yaml setup-tmkms.yml \
+  -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
-**Key variables:**
-- `private_peer_ids` — validator node ID (hidden from peer exchange)
-- `validator_p2p_ip` — validator's reachable P2P IP
-- `seeds` — bootstrap seed nodes (from gnocore)
-
-**Tags:** `config`, `docker`, `compose`
+**Prérequis :** secrets gnoland du validateur déjà initialisés
+(`gnoland secrets init` manuel) — le rôle échoue explicitement sinon, il ne
+génère jamais de secret.
 
 ---
 
-### 3-install-validator-node.yml
+### `setup-private-network.yml`
 
-**Purpose:** Deploy validator node via Docker Compose.
+**Purpose:** Activer l'interface VLAN privée sur un hôte.
 
-**Prerequisites:**
-- `1-base_setup.yml` completed on validator
-- Secrets initialized manually: `gnoland secrets init && gnoland secrets get`
-- Sentry node ID and IP available
-
-**Usage:**
 ```bash
-ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
-  -e persistent_peers_sentry=<sentry_node_id>@<sentry_ip>:26656
-```
-
-**Key variables:**
-- `persistent_peers_sentry` — sentry P2P address (`node_id@ip:26656`)
-- `gno_use_sentry` — `true` (sentry mode, default) or `false` (standalone)
-
-**Tags:** `config`, `docker`, `compose`
-
----
-
-### 4-backup_logs.sh.yaml
-
-**Purpose:** Deploy log backup and rotation scripts via cron.
-
-**Usage:**
-```bash
-ansible-playbook -i inventory.yaml 4-backup_logs.sh.yaml
-```
-
-**What it deploys:**
-- **Validator:** `backup.sh` — extracts 24h of Docker logs, compresses with xz, ships to sentry via SCP daily at 00:10
-- **Sentry:** `rotate.sh` — enforces 30-day retention in backup directory
-
-**Automation:**
-- SSH key pair auto-generated on validator and authorized on sentry
-- Cron job added to `/etc/cron.d/gnoland-backup`
-
-**Tags:** None (applies all tasks)
-
----
-
-### 5-deploy-monitoring-stack.yaml
-
-**Purpose:** Deploy Loki, Prometheus, and Grafana with NGINX proxies.
-
-**Two-play structure:**
-
-**Play 1 — Monitoring server:**
-- Docker Compose (Loki + Prometheus + Grafana)
-- NGINX vhosts with Let's Encrypt TLS
-- Grafana datasources (auto-provisioned)
-- All services listen on localhost only (NGINX handles public access)
-
-**Play 2 — Sentry:**
-- NGINX loki-proxy vhost (:80)
-- Accepts logs from validator on private VLAN
-- Injects Bearer token before forwarding to Loki (validators never hold the token)
-
-**Usage:**
-```bash
-# Production (TLS enabled)
-ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml \
-  -e @group_vars/monitoring.yml
-
-# Vagrant (HTTP only)
-ansible-playbook -i inventory-vagrant.yaml 5-deploy-monitoring-stack.yaml \
-  -e target=gno-monitoring-test \
-  -e @group_vars/monitoring.yml \
-  --skip-tags tls
-```
-
-**Prerequisites:**
-- `group_vars/monitoring.yml` configured
-- DNS records for `loki_domain` and `grafana_domain`
-- NGINX installed on sentry (via `1-base_setup.yml -e install_nginx=true`)
-
-**Tags:** `stack`, `config`, `grafana`, `proxy`, `tls`
-
-**Stack directory:** `/opt/monitoring/` on monitoring server
-
----
-
-### 5b-deploy-validator-proxies.yaml
-
-**Purpose:** Deploy metric proxy vhosts on sentry for validator metrics.
-
-**Enables Prometheus to access validator metrics via sentry (no direct validator access needed).**
-
-**Usage:**
-```bash
-ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml
-```
-
-**Prerequisites:**
-- NGINX installed on sentry (via `1-base_setup.yml -e install_nginx=true`)
-- `validator_proxies` list defined on `gno-sentry` in inventory
-
-**Inventory configuration:**
-```yaml
-gno-sentry:
-  validator_proxies:
-    - name: validator-1
-      private_ip: 172.16.12.2
-      node_exporter_port: 9200
-      otel_port: 9464
-```
-
-**Deployed vhosts:**
-- `:9200` → validator :9100 (node metrics)
-- `:9464` → validator :9464 (OTEL metrics)
-
-**UFW rules:** Automatically adds rules to allow monitoring IP on proxy ports
-
-**Tags:** `nginx`, `ufw`
-
----
-
-### 6-deploy-promtail-sentry.yaml
-
-**Purpose:** Deploy Promtail on validator, logs via sentry relay.
-
-**Log path:** Validator → Sentry loki-proxy (:80, private VLAN, HTTP) → Loki
-
-**Benefits:**
-- Validator has no Bearer token (no secrets to rotate)
-- Sentry injects token transparently
-- Works over private VLAN (HTTP, no TLS needed on private segment)
-
-**Usage:**
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml
-```
-
-**For pre-activated private networks (SSH jump via sentry):**
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml \
-  -e gno_network_mode=private \
-  -e gno_sentry_ip=<sentry_private_ip> \
-  -e gno_validator_private_ip=<validator_private_ip>
-```
-
-**Prerequisites:**
-- `5-deploy-monitoring-stack.yaml` completed (loki-proxy running on sentry)
-- `sentry_private_ip` set in `group_vars/betanet.yml`
-
-**Configuration:**
-- `promtail_job_name` — Loki job label (default: validator moniker)
-
-**Tags:** None (applies all tasks)
-
----
-
-### 6-deploy-promtail-direct.yaml
-
-**Purpose:** Deploy Promtail on validator, logs directly to Loki.
-
-**Log path:** Validator → Loki (:443 HTTPS + Bearer token) → Loki
-
-**Benefits:**
-- Direct path (no sentry relay needed)
-- Simpler setup for standalone validators
-
-**Drawbacks:**
-- Validator must have internet access on port 443
-- Bearer token stored on validator (requires rotation policy)
-
-**Usage:**
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-direct.yaml
-```
-
-**Prerequisites:**
-- `5-deploy-monitoring-stack.yaml` completed
-- Validator has outbound HTTPS access to `loki_domain`
-- `loki_domain` and `loki_bearer_token` set in `group_vars/betanet.yml`
-
-**Security note:** Bearer token written to `/etc/promtail/config.yml` (mode 0600, root only). Encrypt the group vars with `ansible-vault`:
-```bash
-ansible-vault encrypt group_vars/betanet.yml
-```
-
-**Tags:** None (applies all tasks)
-
----
-
-### 7-setup-private-network.yml
-
-**Purpose:** Activate private VLAN network interfaces on validator and sentry.
-
-**Run this after nodes are validated and running.**
-
-**Usage:**
-```bash
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml \
+ansible-playbook -i inventory.yaml setup-private-network.yml \
   -e target=gno-sentry -e vlan_id=<vlan_id>
-
-ansible-playbook -i inventory.yaml 7-setup-private-network.yml \
-  -e target=gno-validator -e vlan_id=<vlan_id>
 ```
 
-**Parameters:**
-- `target` — host or group to configure (required)
-- `vlan_id` — VLAN ID from hosting provider (e.g., Scaleway)
+À lancer une fois les nœuds validés en IP publique. Voir
+`NETWORK_AND_REVERSE_PROXY.md`.
 
-**What it configures:**
-- VLAN network interface (e.g., `eth0.1938`)
-- Static IP from `private_ip` inventory variable
-- Persists across reboots
+---
 
-**Note:** Status is `NOT TESTED YET` — validate before using in production.
+### `backup-logs.yaml`
 
-**Tags:** None (applies all tasks)
+**Purpose:** Rétention froide des logs, indépendante d'Alloy (fenêtre de
+rétention différente du backend logs/métriques).
+
+```bash
+ansible-playbook -i inventory.yaml backup-logs.yaml
+```
+
+Déploie `backup.sh` sur le validateur (extraction 24h des logs Docker,
+compression, SCP quotidien vers la sentry) et `rotate.sh` sur la sentry
+(rétention 30 jours), plus une paire de clés SSH validateur→sentry
+auto-générée.
+
+---
+
+### `install-snapshotter.yml`
+
+**Purpose:** Nœud non-signant dédié aux snapshots + push horaire vers
+Scaleway Object Storage. Voir `roles/snapshotter/README.md`.
+
+```bash
+ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
+```
+
+---
+
+## Docker Compose targets
+
+Trois topologies statiques, 100% configurables via `.env` (voir
+[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md) pour la procédure complète) :
+
+| Répertoire | Usage |
+|---|---|
+| `compose/sentry-alone/` | Sentry publique seule |
+| `compose/validator-alone/` | Validateur seul + otel-collector (pas de sentry co-localisée) |
+| `compose/validator-sentry-tmkms/` | Sentry + validateur + sidecar tmkms (softsign) sur le même hôte |
+
+Ces fichiers ne sont **pas** des templates Jinja2 : ce sont des
+docker-compose classiques (`${VAR}`), poussés à la main sur le serveur avec
+un `.env` rempli à partir du `.env.example` correspondant — même logique que
+`roles/snapshotter/templates/docker-compose.snapshotter.yml.j2` (qui reste
+géré par Ansible, lui, car son besoin est différent : nœud non-signant,
+staging complet par un rôle dédié).
 
 ---
 
@@ -595,388 +262,151 @@ ansible-playbook -i inventory.yaml 7-setup-private-network.yml \
 
 ### check_status.sh
 
-**Location:** `/root/check_status.sh` (deployed by playbooks)
-
-**Purpose:** Pre-flight validation before starting gnoland node.
+**Location:** `validator/check_status.sh` (à copier à la main, voir
+`DEPLOYMENT_RUNBOOK.md`)
 
 **Usage:**
 ```bash
-bash /root/check_status.sh gnoland1
+bash check_status.sh <répertoire-du-nœud>
 ```
 
-**Checks performed:**
-
-| Section | Details |
-| --- | --- |
-| **docker-compose.yml** | Validates `image`, `MONIKER`, `PERSISTENT_PEERS` are set. On sentry: also `SEEDS`, `PRIVATE_PEER_IDS`. |
-| **Secrets** | Runs `gnoland secrets get`, verifies output JSON contains `node_id`, `validator_address`, `p2p_address`. |
-| **Validator state** | Checks `priv_validator_state.json` exists, reports current `height` and `round`. |
-| **Database** | Verifies `gnoland-data/db` and `gnoland-data/wal` directories exist. |
-| **Genesis** | Checks `genesis.json` exists, prints SHA256 checksum. |
-| **Config** | Checks `config.toml` exists. |
-
-**Exit codes:**
-- `0` — all checks passed
-- `1` — at least one critical check failed
-
-**Output:**
-- `✅` for successful checks
-- `❌` for failed checks
-
-**Run after each deployment step and after any configuration change.**
+Vérifie : `image`/`MONIKER`/`PERSISTENT_PEERS` (+ `SEEDS`/`PRIVATE_PEER_IDS`
+pour une sentry) dans `docker-compose.yml`, les secrets gnoland
+(`gnoland secrets get`), l'état du validateur (`priv_validator_state.json`),
+la présence de `gnoland-data/db`+`wal`, `genesis.json` (SHA256) et
+`config.toml`.
 
 ---
 
 ## Variables reference
 
-### group_vars/betanet.yml
+### `inventory.yaml` (voir `inventory.yaml.example`)
 
-Copy from `betanet.yml.example` and populate:
+| Variable | Description |
+| --- | --- |
+| `public_ip` / `private_ip` | IPs de l'hôte |
+| `ufw_ports_app` | Ports applicatifs ouverts publiquement (ex: `[26656]`) |
+| `ufw_ports_moni` / `ufw_allow_ip` | Optionnel — port(s) restreints à une IP unique. Vide par défaut : plus aucun port de scrape entrant n'est requis depuis le passage à Alloy |
+| `alloy_logs_enabled` | Active la pipeline logs Docker (Alloy) |
+| `alloy_log_mode` | `"direct"` (token en dur) ou `"relay"` (via reverse proxy manuel) |
+| `alloy_logs_remote_write_url` | URL cible pour les logs |
+| `alloy_remote_write_mode` | `"direct"` ou `"relay"`, pour les métriques |
+| `alloy_remote_write_url` | URL cible pour les métriques (remote_write) |
+| `alloy_bearer_token` | Token pour le mode `"direct"` |
+| `alloy_containers_filter` | Regex des conteneurs Docker dont les logs sont conservés |
+| `alloy_job_name` | Label `job` sur les logs/métriques |
+| `alloy_metrics_targets` | Liste `{job, service, address}` scrapée localement par Alloy |
+| `tmkms_chain_id` / `tmkms_image` / `tmkms_build_image` | Optionnel — voir `setup-tmkms.yml` |
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `gno_dir` | `gnoland1` | Working directory under `/root/` on all nodes. |
-| `gno_image` | `ghcr.io/gnolang/gno/gnoland:chain-test11` | Gnoland Docker image tag. |
-| `otel_image` | `otel/opentelemetry-collector-contrib:latest` | OTEL Collector image. |
-| `moniker_validator` | `samourai-crew-1` | Validator node display name. |
-| `moniker_sentry` | `samourai-dev-sentry-1` | Sentry node display name. |
-| `pex_validator` | `"False"` | Peer exchange on validator. Keep `False` behind sentry. |
-| `seeds` | `""` | Bootstrap seed nodes for sentry (provided by gnocore). |
-| `private_peer_ids` | `""` | Validator node ID (for sentry to hide validator from peer exchange). |
-| `validator_p2p_ip` | `""` | Validator P2P address reachable from sentry. |
-| `persistent_peers_sentry` | `""` | Sentry P2P address for validator (`node_id@ip:26656`). |
-| `sentry_private_ip` | `""` | Sentry VLAN IP (used by Promtail sentry relay mode). |
-| `promtail_job_name` | `{{ moniker_validator }}` | Loki job label for validator logs. |
-| `loki_domain` | `""` | Loki FQDN (used by Promtail direct mode). |
-| `loki_bearer_token` | `""` | Bearer token for Promtail (direct mode only). Use `ansible-vault`. |
-| `gno_use_sentry` | `true` | Deploy validator in sentry mode (`true`) or standalone (`false`). |
-| `install_nginx` | `false` | Install NGINX (set `true` for sentry in `1-base_setup.yml`). |
-| `container_name` | `gnoland1-validator-1` | Docker container name (used by `backup.sh`). |
-| `genesis_url` | S3 URL | URL to download `genesis.json`. |
-| `config_url` | GitHub URL | URL to download `config.toml`. |
+### `compose/*/.env.example`
 
-### group_vars/monitoring.yml
-
-Copy from `monitoring.yml.example` and populate:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `loki_version` | `3.4.2` | Loki Docker image version. |
-| `prometheus_version` | `3.1.0` | Prometheus Docker image version. |
-| `grafana_version` | `latest` | Grafana Docker image version. |
-| `promtail_version` | `3.4.2` | Promtail binary version (must match `loki_version`). |
-| `loki_http_port` | `3100` | Loki internal listen port (never exposed directly). |
-| `loki_domain` | `""` | FQDN for Loki NGINX vhost (DNS must point to monitoring server). |
-| `loki_scheme` | `https` | Protocol: `https` for production, `http` for Vagrant testing. |
-| `grafana_domain` | `""` | FQDN for Grafana NGINX vhost. |
-| `grafana_admin_password` | `""` | Grafana admin password. Use `ansible-vault`. |
-| `prometheus_http_port` | `9090` | Prometheus internal listen port. |
-| `prometheus_retention` | `30d` | Prometheus metrics retention period. |
-| `prometheus_scrape_jobs` | `[]` | Scrape target list (auto-configured by playbook). |
-| `letsencrypt_email` | `""` | Email for Let's Encrypt registration and renewal alerts. |
-| `loki_bearer_token` | `""` | Bearer token for NGINX Loki proxy auth. Use `ansible-vault`. |
-| `loki_allowed_ips` | `[]` | Sentry public IPs allowed to push to Loki (for loki-proxy). |
-| `loki_validator_ips` | `[]` | Validator VLAN IPs allowed through sentry loki-proxy. |
-| `loki_retention_hours` | `1440` | Log retention period in hours (default: 60 days). |
-| `loki_ingestion_rate_mb` | `32` | Loki ingestion rate limit in MB/s. |
-| `loki_ingestion_burst_size_mb` | `64` | Loki ingestion burst size in MB. |
-
-### Sentry inventory variables
-
-Required when using `5b-deploy-validator-proxies.yaml`:
-
-```yaml
-gno-sentry:
-  validator_proxies:
-    - name: validator-1
-      private_ip: 172.16.12.2
-      node_exporter_port: 9200
-      otel_port: 9464
-    - name: validator-2
-      private_ip: 172.16.12.3
-      node_exporter_port: 9201
-      otel_port: 9465
-```
+Voir chaque fichier — `IMAGES`, `MONIKER(_*)`, `SEEDS`, `PERSISTENT_PEERS(_*)`,
+`PRIVATE_PEER_IDS`, `TMKMS_CHAIN_ID` selon la topologie.
 
 ---
 
 ## Security considerations
 
-### Secrets management
+### Secrets gnoland
 
-- **Never commit** `group_vars/betanet.yml` or `group_vars/monitoring.yml` — add to `.gitignore`
-- Encrypt all secrets with `ansible-vault`:
-  ```bash
-  ansible-vault encrypt group_vars/betanet.yml
-  ansible-vault encrypt_string 'token' --name 'loki_bearer_token'
-  ```
-
-### Gnoland secrets initialization
-
-Secrets must be initialized manually on each node before playbook deployment. This is intentional — it ensures you have a copy of the node IDs:
+Jamais générés par Ansible. Initialisation manuelle, une fois par nœud :
 
 ```bash
-ssh root@<validator-ip>
+ssh root@<node-ip>
 gnoland secrets init
-gnoland secrets get  # save the node_id and p2p_address
+gnoland secrets get  # noter node_id, p2p_address, validator_address
 ```
 
-Secrets are stored in `/root/gnoland1/secrets/` and persisted across playbook re-runs.
+### Fichiers non-secrets par déploiement
 
-### Validator internet isolation
+`entrypoint.sh`, `config.toml`, `genesis.json` changent à chaque version de
+gno (build, genesis, liens de téléchargement) — ils sont poussés à la main à
+chaque déploiement (voir `DEPLOYMENT_RUNBOOK.md`), jamais rendus par un
+template Ansible.
 
-After private network activation, disable validator's internet access while keeping the private VLAN operational:
+### Réseau
 
-```bash
-ssh root@<validator-ip>
+- P2P (`:26656`) : seul port ouvert publiquement par défaut.
+- RPC (`:26657`) et métriques (`:9100`, `:9464`) : toujours bindés en
+  `127.0.0.1` dans les composes de `compose/` — jamais exposés.
+- Isolation VLAN privée du validateur : voir `NETWORK_AND_REVERSE_PROXY.md`
+  et `validator/Network_control.md`.
 
-# Disable internet (preserves private VLAN)
-ip addr flush dev eno1
+### tmkms
 
-# Re-enable (needed for playbook re-runs)
-dhclient eno1
-```
-
-Full isolation instructions in `/root/Network_control.md` on the validator.
-
-### Loki authentication
-
-- `auth_enabled: false` in Loki config — **security relies entirely on NGINX**
-- NGINX layer:
-  - IP whitelist (only sentry IPs allowed)
-  - Bearer token required in `Authorization: Bearer` header
-  - Do not expose port 3100 directly to public internet
-- Bearer token in plaintext at `/etc/promtail/config.yml` on validator (direct mode only, mode 0600, root only)
-
-### Monitoring server access
-
-- All services (Loki, Prometheus) listen on `127.0.0.1` (localhost only)
-- NGINX handles all public access with TLS and authentication
-- UFW restricts metric scraping to monitoring server IP only
-
-### Validator network security
-
-- P2P port (:26656) **never exposed** on validator after private VLAN activation
-- Metrics (:9100, :9464) accessed only through sentry proxies
-- Logs shipped through sentry relay (sentry injects Bearer token)
-- No direct public internet access needed after bootstrapping
+Le rôle `tmkms` (utilisé par `setup-tmkms.yml`) échoue explicitement si les
+secrets gnoland du validateur n'existent pas encore — il ne les génère
+jamais. Voir `roles/tmkms/README.md`.
 
 ---
 
 ## Vagrant testing
 
-Test environment configuration in `inventory-vagrant.yaml`:
+Configuration de test dans `inventory-vagrant.yaml` :
 
-| Host | IP | Role |
+| Host | IP | Rôle |
 | --- | --- | --- |
-| `gno-validator` | 192.168.56.10 | Validator node |
-| `gno-sentry` | 192.168.56.11 | Sentry node |
-| `gno-monitoring-test` | 192.168.56.12 | Monitoring server |
-
-### Vagrant workflow
+| `gno-validator` | 192.168.56.10 | Validateur |
+| `gno-sentry` | 192.168.56.11 | Sentry |
+| `gno-tmkms` | 192.168.56.11 | tmkms (lab) |
 
 ```bash
-# Start VMs
 vagrant up
 
-# Base setup
-ansible-playbook -i inventory-vagrant.yaml 1-base_setup.yml -e target=gno-sentry -e install_nginx=true
-ansible-playbook -i inventory-vagrant.yaml 1-base_setup.yml -e target=gno-validator
+ansible-playbook -i inventory-vagrant.yaml base_setup.yml -e target=gno-sentry
+ansible-playbook -i inventory-vagrant.yaml base_setup.yml -e target=gno-validator
 
-# Manual secrets init (SSH into each VM)
-vagrant ssh gno-sentry
-gnoland secrets init && gnoland secrets get
+# Secrets (SSH manuel dans chaque VM)
+vagrant ssh gno-sentry -c 'gnoland secrets init && gnoland secrets get'
+vagrant ssh gno-validator -c 'gnoland secrets init && gnoland secrets get'
 
-vagrant ssh gno-validator
-gnoland secrets init && gnoland secrets get
-
-# Deploy nodes (use the node IDs from above)
-ansible-playbook -i inventory-vagrant.yaml 2-install-sentry-node.yml -e private_peer_ids=<...> -e validator_p2p_ip=192.168.56.10
-ansible-playbook -i inventory-vagrant.yaml 3-install-validator-node.yml -e persistent_peers_sentry=<...>@192.168.56.11:26656
-
-# Deploy monitoring (HTTP only, no TLS)
-ansible-playbook -i inventory-vagrant.yaml 5-deploy-monitoring-stack.yaml \
-  -e target=gno-monitoring-test \
-  -e @group_vars/monitoring.yml \
-  --skip-tags tls
+# Déploiement des nœuds : voir DEPLOYMENT_RUNBOOK.md
 ```
-
-### Vagrant Grafana access
-
-After `5-deploy-monitoring-stack.yaml`, access Grafana at:
-```
-http://grafana.192.168.56.12.nip.io
-```
-
-Use nip.io subdomains in `monitoring.yml`:
-- `grafana_domain: "grafana.192.168.56.12.nip.io"`
-- `loki_domain: "loki.192.168.56.12.nip.io"`
-- `loki_scheme: "http"` (not `https`)
-
----
-
-## Adding a new validator
-
-This section covers what to do when you need to add a second (or Nth) validator to an existing infrastructure that already has a sentry and a monitoring server running.
-
-### 1. Update the inventory
-
-Add the new validator host under the `validators` group in `inventory.yaml`:
-
-```yaml
-validators:
-  hosts:
-    gno-validator:          # existing validator
-      ansible_host: 10.0.0.10
-      private_ip: 10.0.0.10
-      moniker_validator: samourai-crew-1
-      ...
-
-    gno-validator-2:        # new validator
-      ansible_host: 10.0.0.20
-      private_ip: 10.0.0.20
-      moniker_validator: samourai-crew-2
-      gno_network_mode: public
-      ansible_ssh_private_key_file: /path/to/key
-```
-
-Then add two entries to `validator_proxies` on the sentry host. Each validator needs one proxy port for `node_exporter` and one for OTEL — pick ports that don't conflict with existing ones:
-
-```yaml
-sentries:
-  hosts:
-    gno-sentry:
-      ...
-      validator_proxies:
-        - name: validator-1          # existing
-          private_ip: 10.0.0.10
-          node_exporter_port: 9200
-          otel_port: 9464
-        - name: validator-2          # new
-          private_ip: 10.0.0.20
-          node_exporter_port: 9201
-          otel_port: 9465
-```
-
-### 2. Update monitoring variables
-
-In `group_vars/monitoring.yml`, add two new scrape jobs for the new validator's metrics (routed through the sentry proxies):
-
-```yaml
-prometheus_scrape_jobs:
-  # existing jobs ...
-  - job_name: validator-2-node
-    static_configs:
-      - targets: ["<sentry_public_ip>:9201"]
-        labels:
-          node: validator-2
-  - job_name: validator-2-otel
-    static_configs:
-      - targets: ["<sentry_public_ip>:9465"]
-        labels:
-          node: validator-2
-```
-
-### 3. Bootstrap the new validator
-
-Run the base setup and install the node binary:
-
-```bash
-ansible-playbook -i inventory.yaml 1-base_setup.yml -e target=gno-validator-2
-```
-
-Then SSH into the new validator and initialise its secrets:
-
-```bash
-ssh root@<validator-2-ip>
-gnoland secrets init
-gnoland secrets get    # note the node ID
-```
-
-### 4. Deploy the validator node
-
-Use the sentry's node ID (already running) as the persistent peer:
-
-```bash
-ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
-  -e target=gno-validator-2 \
-  -e persistent_peers_sentry=<sentry_node_id>@<sentry_private_ip>:26656
-```
-
-### 5. Deploy the sentry proxies
-
-Re-run the proxy playbook on the sentry. It loops over `validator_proxies` and is idempotent — existing proxies are untouched, new ones are created:
-
-```bash
-ansible-playbook -i inventory.yaml 5b-deploy-validator-proxies.yaml
-```
-
-This creates two new NGINX vhosts on the sentry (`:9201` and `:9465`) and adds the corresponding UFW rules.
-
-### 6. Reload Prometheus
-
-Push the updated scrape config to the monitoring server:
-
-```bash
-ansible-playbook -i inventory.yaml 5-deploy-monitoring-stack.yaml --tags config
-```
-
-Prometheus will reload automatically and start scraping the new validator's metrics.
-
-### 7. Deploy Promtail on the new validator
-
-```bash
-ansible-playbook -i inventory.yaml 6-deploy-promtail-sentry.yaml \
-  -e target=gno-validator-2
-```
-
-Logs from the new validator will appear in Grafana under the label `job: samourai-crew-2` (the value of `moniker_validator`).
-
-### Summary
-
-| Step | Playbook / action | Scope |
-| ---- | ----------------- | ----- |
-| 1 | Edit `inventory.yaml` | Add host + `validator_proxies` entry |
-| 2 | Edit `group_vars/monitoring.yml` | Add 2 Prometheus scrape jobs |
-| 3 | `1-base_setup.yml -e target=gno-validator-2` | New validator only |
-| 4 | Manual: `gnoland secrets init` on new validator | New validator only |
-| 5 | `3-install-validator-node.yml -e target=gno-validator-2` | New validator only |
-| 6 | `5b-deploy-validator-proxies.yaml` | Sentry (idempotent) |
-| 7 | `5-deploy-monitoring-stack.yaml --tags config` | Monitoring server |
-| 8 | `6-deploy-promtail-sentry.yaml -e target=gno-validator-2` | New validator only |
 
 ---
 
 ## Local environments (devnet & tmkms-lab)
 
-Two Docker-based sandboxes live alongside the production Ansible workflow. Both
-are **self-contained, throwaway `dev` chains** that never commit secrets or keys
-— everything generated (keys, genesis, `.env`, state) is gitignored and
-regenerated on each setup.
+Deux bacs à sable Docker vivent à côté du flux Ansible de production. Les
+deux sont des chaînes `dev` **autonomes et jetables** qui ne committent
+jamais de secrets — tout ce qui est généré (clés, genesis, `.env`, état) est
+gitignoré et régénéré à chaque setup.
 
 ### devnet
 
-[`devnet/`](devnet/) is a **3-validator Gno.land devnet** run entirely with
-Docker (validator/validator2/validator3, plus a 4th identity reserved for the
-GovDAO onboarding scenario, a tx-indexer and a gnoweb explorer). Its purpose is
-to exercise every **gnomonitoring** feature end-to-end — block participation
-tracking, downtime/halt alerts, the GovDAO watcher, Prometheus metrics and the
-Telegram bots — before merging changes to production. It also hosts the
-**production softsign + Unix-socket tmkms sidecar** reference setup.
+[`devnet/`](devnet/) est un **devnet Gno.land à 3 validateurs** entièrement
+piloté par Docker (validator/validator2/validator3, plus une 4ᵉ identité
+réservée au scénario d'onboarding GovDAO, un tx-indexer et un explorateur
+gnoweb). Son but : exercer de bout en bout chaque fonctionnalité de
+**gnomonitoring** — suivi de participation aux blocs, alertes
+downtime/halt, watcher GovDAO, métriques Prometheus et bots Telegram — avant
+de merger des changements en production. Il héberge aussi la configuration
+de référence **sidecar tmkms softsign + socket Unix**.
 
-One-time setup: `GNO_REPO_PATH=/path/to/gno ./bootstrap.sh`, then
-`docker compose up -d`. See [`devnet/README.md`](devnet/README.md) for the full
-workflow, reset procedures, local dev accounts and the scripted test scenarios
-(`make help`).
+Setup en une fois : `GNO_REPO_PATH=/path/to/gno ./bootstrap.sh`, puis
+`docker compose up -d`. Voir [`devnet/README.md`](devnet/README.md) pour le
+détail (reset, comptes de dev locaux, scénarios de test scriptés via
+`make help`).
 
 ### tmkms-lab
 
-[`tmkms-lab/`](tmkms-lab/) is a smaller **2-VM experiment** that stands up a
-single-validator chain (plus one sentry) and **externalizes the validator's
-consensus signing to [tmkms](https://github.com/iqlusioninc/tmkms)** over TCP:
-the private consensus key lives on a second VM, not inside the gnoland
-container. Its purpose is to understand and validate the tmkms remote-signer
-path before rolling it into production.
+[`tmkms-lab/`](tmkms-lab/) est une expérimentation plus petite, **2 VM**, qui
+monte une chaîne mono-validateur (plus une sentry) et **externalise la
+signature consensus vers [tmkms](https://github.com/iqlusioninc/tmkms)** en
+TCP : la clé consensus privée vit sur une seconde VM, pas dans le conteneur
+gnoland. Son but : comprendre et valider le chemin de signature distante
+tmkms avant de le déployer en production.
 
-See [`tmkms-lab/README.md`](tmkms-lab/README.md) for the full 2-VM walkthrough
-(image requirements, bootstrap, key exchange, verification).
+Voir [`tmkms-lab/README.md`](tmkms-lab/README.md) pour le déroulé complet
+(pré-requis d'image, bootstrap, échange de clés, vérification).
+
+---
+
+## legacy/
+
+[`legacy/`](legacy/README.md) regroupe ce qui a été retiré du périmètre
+Ansible actif lors de la simplification du dépôt (nginx/TLS/OAuth-proxy,
+stack Loki/Prometheus/Grafana, déploiement automatisé des composes,
+Promtail). Rien n'y est maintenu — c'est une référence historique, pas du
+code à rejouer en l'état. Voir `legacy/README.md` pour le détail et les
+raisons de chaque retrait.
