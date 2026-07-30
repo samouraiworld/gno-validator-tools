@@ -108,6 +108,12 @@ above are identical, except):
 - step 6 (**render `tmkms.toml`**): `[[validator]]` gets
   `addr = "tcp://<tmkms_validator_peer_id>@<tmkms_validator_ip>:<tmkms_validator_port>"`
   instead of the `unix://` address.
+- extra step 9 (**derive and print the kms-identity pubkey**): tcp mode only.
+  Runs the same one-off Go program as `tmkms-lab/tmkms/setup-vm2-tmkms.sh`
+  (kept identical on purpose) via `docker run golang:1-alpine`, read-only, to
+  turn the `kms-identity.key` seed into its `ed25519:<hex>` pubkey — printed
+  in the final debug message. That value goes into
+  `TMKMS_ALLOWED_KMS_PUBKEYS` on the validator host.
 
 After the role completes, `docker compose up -d` starts the tmkms sidecar —
 `compose/validator-sentry-tmkms/` (uds) or `compose/tmkms-alone/` (tcp,

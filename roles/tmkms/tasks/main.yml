@@ -143,6 +143,38 @@
     path: "{{ tmkms_remote_dir }}/secrets/kms-identity.key"
     mode: "0600"
 
+# tcp mode: the validator's TMKMS_ALLOWED_KMS_PUBKEYS needs this signer's
+# kms-identity pubkey (ed25519:<hex>), derived from the seed generated above.
+# Same one-off Go program as tmkms-lab/tmkms/setup-vm2-tmkms.sh (kept
+# byte-identical on purpose) — read-only, never regenerates the key.
+- name: Stage the kms-identity pubkey derivation helper (tcp mode)
+  ansible.builtin.copy:
+    dest: "{{ tmkms_remote_dir }}/kmsgen.go"
+    mode: "0644"
+    content: |
+      package main
+      import ("crypto/ed25519";"encoding/base64";"encoding/hex";"fmt";"os")
+      func main(){
+       path:=os.Args[1]
+       b,err:=os.ReadFile(path)
+       if err!=nil { fmt.Fprintln(os.Stderr,"cannot read kms-identity.key"); os.Exit(1) }
+       s,err:=base64.StdEncoding.DecodeString(string(b))
+       if err!=nil || len(s)!=ed25519.SeedSize { fmt.Fprintln(os.Stderr,"invalid kms-identity seed"); os.Exit(1) }
+       p:=ed25519.NewKeyFromSeed(s).Public().(ed25519.PublicKey)
+       fmt.Println("ed25519:"+hex.EncodeToString(p)) }
+  when: tmkms_connection_mode == "tcp"
+
+- name: Derive the kms-identity pubkey (tcp mode)
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      -v {{ tmkms_remote_dir }}/secrets:/s
+      -v {{ tmkms_remote_dir }}/kmsgen.go:/kmsgen.go:ro
+      golang:1-alpine go run /kmsgen.go /s/kms-identity.key
+  register: _tmkms_kms_identity_pubkey
+  changed_when: false
+  when: tmkms_connection_mode == "tcp"
+
 - name: tmkms sidecar prepared (uds)
   ansible.builtin.debug:
     msg: >-
@@ -156,8 +188,10 @@
     msg: >-
       tmkms ready (tcp / softsign, chain_id={{ tmkms_chain_id }}) on this
       signer host, listening for {{ tmkms_validator_peer_id }}@{{ tmkms_validator_ip }}.
+      kms-identity pubkey (TMKMS_ALLOWED_KMS_PUBKEYS on the validator host):
+      {{ _tmkms_kms_identity_pubkey.stdout }}
       On the validator host, set TMKMS_LISTEN_ADDR=tcp://0.0.0.0:{{ tmkms_validator_port }}
-      and TMKMS_ALLOWED_KMS_PUBKEYS to this signer's kms-identity pubkey (see
+      and TMKMS_ALLOWED_KMS_PUBKEYS to the value above (see
       compose/validator-alone/.env.example), then `docker compose up -d` here
       (compose/tmkms-alone/) and on the validator host.
   when: tmkms_connection_mode == "tcp"
