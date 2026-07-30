@@ -111,8 +111,8 @@ if [ -z "$STATUS" ]; then
   exit 0
 fi
 
-HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty')"
-CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring')"
+HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
 
 if [ -z "$HEIGHT" ] || [ -z "$CATCHING_UP" ]; then
   echo "⚠️  $NODE: malformed /status response — skipping this check." >&2
@@ -417,7 +417,7 @@ esac
 echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
 ELAPSED=0
 while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
-  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring')"
+  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
   if [ "$CATCHING_UP" = "false" ]; then
     alert "restore-succeeded" "$NODE: restored from $LATEST and caught up."
     rm -f "$LOCK_DIR/${NODE}.state"
@@ -818,8 +818,8 @@ if [ -z "$STATUS" ]; then
   exit 0
 fi
 
-HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty')"
-CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring')"
+HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
 
 if [ -z "$HEIGHT" ] || [ -z "$CATCHING_UP" ]; then
   echo "⚠️  malformed /status response — skipping this check." >&2
@@ -1129,7 +1129,7 @@ fi
 echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
 ELAPSED=0
 while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
-  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring')"
+  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
   if [ "$CATCHING_UP" = "false" ]; then
     alert "restore-succeeded" "${NODE_TYPE}: restored from $LATEST and caught up."
     rm -f "$STATE_DIR/${NODE_TYPE}.state"
