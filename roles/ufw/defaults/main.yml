@@ -8,3 +8,9 @@
 # Reste disponible pour un besoin ponctuel (ex: IP d'admin sur un port
 # spécifique) sans qu'un host qui ne l'utilise pas ait à le définir.
 ufw_ports_moni: []
+
+# tmkms TCP signer port (validator host only, tmkms_connection_mode: "tcp").
+# Restricted to the signer host's IP — empty/no-op by default. See
+# roles/tmkms, compose/tmkms-alone/.
+ufw_tmkms_port: ""
+ufw_tmkms_signer_ip: ""

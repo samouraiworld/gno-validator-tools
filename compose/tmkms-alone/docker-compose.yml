@@ -1,0 +1,20 @@
+# tmkms-alone — dedicated signer host (TCP mode), separate from the
+# validator. Modeled on tmkms-lab/tmkms/docker-compose.yml (proven 2-VM lab
+# pattern) — just the tmkms service, no gnoland node on this host at all.
+#
+# Prerequisites staged by `setup-tmkms.yml` (-e tmkms_connection_mode=tcp),
+# NOT by hand: ./tmkms.toml, ./secrets/consensus.key (resliced on the
+# validator host and copied here out-of-band), ./secrets/kms-identity.key.
+# See DEPLOYMENT_RUNBOOK.md and roles/tmkms/README.md.
+#
+# No ./run/ here (unlike compose/validator-sentry-tmkms/): the validator and
+# the signer are on different hosts, there is no shared socket directory.
+
+services:
+  tmkms:
+    image: "${TMKMS_IMAGE:-tmkms:local}"
+    restart: always
+    command: ["start", "-c", "/tmkms/tmkms.toml"]
+    volumes:
+      - ./tmkms.toml:/tmkms/tmkms.toml:ro
+      - ./secrets:/tmkms/secrets

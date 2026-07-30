@@ -31,6 +31,16 @@
   loop: "{{ ufw_ports_moni }}"
   when: ufw_ports_moni is defined and ufw_ports_moni | length > 0
 
+- name: Allow tmkms TCP signer port from the signer host only
+  ufw:
+    rule: allow
+    from_ip: "{{ ufw_tmkms_signer_ip }}"
+    to_port: "{{ ufw_tmkms_port | string }}"
+    proto: tcp
+  when: >-
+    ufw_tmkms_port is defined and ufw_tmkms_port | string | length > 0
+    and ufw_tmkms_signer_ip is defined and ufw_tmkms_signer_ip | length > 0
+
 - name: Enable UFW
   ufw:
     state: enabled
