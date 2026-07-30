@@ -3,10 +3,6 @@ all:
     ansible_user: root
     ansible_python_interpreter: /usr/bin/python3
     ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
-    # UFW — monitoring IP (Vagrant monitoring VM)
-    ufw_allow_ip: "192.168.56.12"
-    # Ports restreints au monitoring (node_exporter, nginx_exporter, otel)
-    ufw_ports_moni: [9100, 9113, 9464]
 
   children:
     validators:
@@ -34,7 +30,7 @@ all:
 
     sentries:
       hosts:
-        
+
         gno-sentry:
           ansible_host: 192.168.56.11
           public_ip: 192.168.56.11
@@ -42,17 +38,4 @@ all:
           gno_sentry_ip: 192.168.56.11
           gno_network_mode: public
           ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/sentry/virtualbox/private_key
-          ufw_ports_moni: [9100, 9113]
-          ufw_ports_app: [26656, 80]
-          ufw_allow_ip: 192.168.56.12 # ip of monitoring
-          validator_proxies:
-            - name: validator-1
-              private_ip: 192.168.56.10
-              node_exporter_port: 9200
-              otel_port: 9464
-
-    monitoring_servers:
-      hosts:
-        gno-monitoring-test:
-          ansible_host: 192.168.56.12
-          ansible_ssh_private_key_file: ./vagrant/.vagrant/machines/monitoring/virtualbox/private_key
+          ufw_ports_app: [26656]
