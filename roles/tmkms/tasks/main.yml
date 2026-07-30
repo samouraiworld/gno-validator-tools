@@ -61,12 +61,12 @@
     that:
       - _tmkms_priv_validator_key.stat.exists
     fail_msg: |
-      {{ tmkms_node_secrets_dir }}/priv_validator_key.json introuvable.
-      Les secrets gnoland ne sont jamais générés par Ansible : lancez d'abord,
-      manuellement, sur le validateur :
+      {{ tmkms_node_secrets_dir }}/priv_validator_key.json not found.
+      Ansible never generates gnoland secrets: run this manually on the
+      validator first:
         docker run --rm -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data \
           --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
-      puis relancez ce playbook.
+      then re-run this playbook.
   when: tmkms_connection_mode == "uds"
 
 # tcp mode: this host is the dedicated signer, not the validator — there is
@@ -85,14 +85,14 @@
     that:
       - _tmkms_consensus_key_tcp.stat.exists
     fail_msg: |
-      {{ tmkms_remote_dir }}/secrets/consensus.key introuvable sur cet hôte
-      signataire. En mode tcp, cette clé n'est jamais reslicée localement (le
-      priv_validator_key.json du validateur vit sur un autre hôte) : reslicez-la
-      sur l'hôte validateur puis copiez-la ici, par exemple :
+      {{ tmkms_remote_dir }}/secrets/consensus.key not found on this signer
+      host. In tcp mode this key is never resliced locally here (the
+      validator's priv_validator_key.json lives on a different host):
+      reslice it on the validator host and copy it here, e.g.:
         scp <validator-host>:{{ tmkms_node_secrets_dir }}/consensus.key \
           {{ tmkms_remote_dir }}/secrets/consensus.key
-      (voir tmkms-lab/README.md étape 2, ou reslicez à la main avec la même
-      commande jq que ce rôle utilise en mode uds.)
+      (see tmkms-lab/README.md step 2, or reslice it by hand with the same
+      jq command this role uses in uds mode.)
   when: tmkms_connection_mode == "tcp"
 
 - name: Build tmkms image from the role Dockerfile

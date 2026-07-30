@@ -1,12 +1,12 @@
 ---
 # defaults file for roles/ufw
 
-# Ports restreints à une IP unique (ufw_allow_ip), typiquement un serveur de
-# monitoring qui viendrait scraper le host. Vide par défaut : depuis le
-# passage à Alloy (push/remote_write), plus aucun port de scrape entrant
-# n'est nécessaire (node_exporter, otel-collector restent en 127.0.0.1).
-# Reste disponible pour un besoin ponctuel (ex: IP d'admin sur un port
-# spécifique) sans qu'un host qui ne l'utilise pas ait à le définir.
+# Ports restricted to a single IP (ufw_allow_ip), typically a monitoring
+# server that would scrape the host. Empty by default: since the switch to
+# Alloy (push/remote_write), no inbound scrape port is needed anymore
+# (node_exporter, otel-collector stay on 127.0.0.1). Kept available for a
+# one-off need (e.g. an admin IP on a specific port) without forcing every
+# host that doesn't use it to define it.
 ufw_ports_moni: []
 
 # tmkms TCP signer port (validator host only, tmkms_connection_mode: "tcp").

@@ -1,7 +1,7 @@
-# sentry-alone — sentry publique seule (pas de validateur co-localisé).
-# 100% configurable via .env (cp .env.example .env). Voir DEPLOYMENT_RUNBOOK.md
-# pour l'arborescence attendue (entrypoint.sh, config.toml, genesis.json à
-# côté de ce fichier) et la procédure de déploiement manuelle.
+# sentry-alone — standalone public sentry (no co-located validator).
+# 100% configurable via .env (cp .env.example .env). See DEPLOYMENT_RUNBOOK.md
+# for the expected layout (entrypoint.sh, config.toml, genesis.json next to
+# this file) and the manual deployment procedure.
 
 services:
   sentry:
@@ -20,4 +20,4 @@ services:
       MONIKER: "${MONIKER}"
       SEEDS: "${SEEDS}"
       PERSISTENT_PEERS: "${PERSISTENT_PEERS}"
-      PRIVATE_PEER_IDS: "${PRIVATE_PEER_IDS}" # node_id du validateur (p2p_address)
+      PRIVATE_PEER_IDS: "${PRIVATE_PEER_IDS}" # validator's node_id (p2p_address)
