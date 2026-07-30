@@ -1,0 +1,40 @@
+# validator-alone — validateur seul (PEX désactivé, pas de sentry co-localisée)
+# + otel-collector pour la télémétrie. 100% configurable via .env (cp
+# .env.example .env). Voir DEPLOYMENT_RUNBOOK.md pour l'arborescence attendue
+# (entrypoint.sh, config.toml, genesis.json, otel/otel-config.yaml à côté de
+# ce fichier) et la procédure de déploiement manuelle.
+#
+# otel-collector reste en 127.0.0.1 : plus aucun port de métriques n'est
+# exposé publiquement, Alloy (rôle base_setup) scrape en local et pousse en
+# remote_write vers le backend métriques (voir NETWORK_AND_REVERSE_PROXY.md).
+
+services:
+  validator:
+    image: "${IMAGES}"
+    restart: on-failure
+    ports:
+      - "26656:26656"
+      - "127.0.0.1:26657:26657"
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "${MONIKER}"
+      PERSISTENT_PEERS: "${PERSISTENT_PEERS}" # p2p_address sentry
+      PEX: "false"
+      MAX_PEERS: 2
+      INBOUND: 0
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: on-failure
+    container_name: otel-collector
+    volumes:
+      - ./otel/otel-config.yaml:/etc/otel/config.yaml:ro
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "127.0.0.1:9464:9464" # exposition Prometheus — scrapée localement par Alloy
+      - "127.0.0.1:4317:4317" # OTLP gRPC — gnoland y exporte sa télémétrie
