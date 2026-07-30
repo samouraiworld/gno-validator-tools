@@ -1,8 +1,12 @@
 ---
 # defaults file for roles/tmkms
-# Externalize the validator's consensus signing to a same-host tmkms sidecar
-# (softsign backend, Unix-socket transport). gnoland LISTENS on the socket;
-# tmkms DIALS in and signs. For the 2-VM TCP variant see ../../tmkms-lab/.
+# Externalize the validator's consensus signing to a tmkms sidecar (softsign
+# backend). gnoland LISTENS on a privval endpoint; tmkms DIALS in and signs.
+# Two transports, picked via tmkms_connection_mode:
+#   - "uds" (default): same host as the validator, Unix socket. Reference:
+#     compose/validator-sentry-tmkms/.
+#   - "tcp": dedicated signer host, TCP. Reference: tmkms-lab/ (proven 2-VM
+#     lab pattern) and compose/tmkms-alone/.
 
 # Master switch. false → role is a no-op and the compose omits the tmkms service.
 tmkms_enabled: false
@@ -10,12 +14,34 @@ tmkms_enabled: false
 # Chain id — MUST match genesis / config.toml tmkms_listener.chain_id.
 tmkms_chain_id: ""
 
-# Remote layout on the validator host. Matches the compose/validator-sentry-tmkms
-# layout: {{ gno_dir }}/{sentry,validator,tmkms}/ side by side (NOT the old flat
-# {{ gno_dir }}/gnoland-data layout used by the single-node composes).
+# Transport mode. "uds" is non-regressive (same behaviour as before this
+# variable existed). "tcp" runs the role on a separate signer host — see
+# tmkms_validator_peer_id/tmkms_validator_ip/tmkms_validator_port below.
+tmkms_connection_mode: "uds"
+
+# Remote layout on the host this role runs on. In "uds" mode that's the
+# validator host, matching the compose/validator-sentry-tmkms layout
+# ({{ gno_dir }}/{sentry,validator,tmkms}/ side by side). In "tcp" mode
+# that's the dedicated signer host (see compose/tmkms-alone/), where
+# {{ gno_dir }} is just a directory name — no gnoland node lives there.
 tmkms_remote_dir: "/root/{{ gno_dir }}/tmkms"
+
+# UDS mode only: path to the validator's own gnoland data dir on this same
+# host, source of priv_validator_key.json for the local reslice. Not read in
+# tcp mode (the signer host has no gnoland-data of its own — consensus.key is
+# copied there out-of-band from the validator host, see DEPLOYMENT_RUNBOOK.md).
 tmkms_node_data_dir: "/root/{{ gno_dir }}/validator/gnoland-data"
 tmkms_node_secrets_dir: "{{ tmkms_node_data_dir }}/secrets"
+
+# --- TCP mode only (tmkms_connection_mode: "tcp") ---------------------------
+# The peer-id pin is mandatory on TCP: an unpinned addr lets tmkms sign for an
+# impostor (see TMKMS.md). Get it with `gnoland secrets get` on the validator
+# host (node_id.id, hex).
+tmkms_validator_peer_id: ""
+# IP of the validator host, reachable from this signer host.
+tmkms_validator_ip: ""
+# TCP port the validator's tmkms_listener listens on (tmkms-lab uses 26659).
+tmkms_validator_port: 26659
 
 # tmkms image. Built on the host from files/Dockerfile by default. For an
 # airgapped/hardened host, prebuild + push to a registry, set tmkms_image to
@@ -23,5 +49,6 @@ tmkms_node_secrets_dir: "{{ tmkms_node_data_dir }}/secrets"
 tmkms_image: "tmkms:local"
 tmkms_build_image: true
 
-# UDS socket path inside the containers (shared via the tmkms/run mount).
+# UDS mode only: socket path inside the containers (shared via the tmkms/run
+# mount). Not used in tcp mode (no shared socket dir between hosts).
 tmkms_socket_path: "/run/gnoland/privval.sock"
