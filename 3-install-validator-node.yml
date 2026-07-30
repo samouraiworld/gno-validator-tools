@@ -3,7 +3,7 @@
 # Install validator node
 #
 # Prérequis : gnoland secrets init a été exécuté manuellement sur le validator.
-# ansible-playbook -i inventory.yaml install-validator-node.yml
+# ansible-playbook -i inventory.yaml install-validator-node.yml -e --target=<host>
 #
 # Variables clés :
 #   gno_use_sentry (bool) — utilise docker-validator.yml.j2 si true,
@@ -11,12 +11,12 @@
 # =============================================================================
 
 - name: Install validator node
-  hosts: gno-validator
+  hosts: "{{ target | default('gno-validator') }}"
   become: false
 
   vars:
-    gno_dir: gnoland1
-    gno_image: ghcr.io/gnolang/gno/gnoland:chain-test11
+    gno_dir: topaz
+    gno_image: ghcr.io/louis14448/gno/gnoland:chain-topaz
     otel_image: otel/opentelemetry-collector-contrib:latest
     moniker_validator: samourai-crew-1
     moniker_sentry: samourai-dev-sentry-1
@@ -111,6 +111,8 @@
     - name: Configure tmkms sidecar signer
       ansible.builtin.include_role:
         name: tmkms
+        apply:
+          tags: [tmkms]
       when: tmkms_enabled | default(false) | bool
       tags: [tmkms, config]
 
