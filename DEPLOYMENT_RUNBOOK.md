@@ -42,36 +42,51 @@ Note the `node_id`/P2P addresses needed to build the other nodes'
 `PERSISTENT_PEERS`/`PRIVATE_PEER_IDS`. Also get `SEEDS` from the network
 operator (gnocore or equivalent).
 
-## 2. Non-secret files to push by hand
+## 2. Non-secret files — partially automated, partially manual
 
 For each gnoland node (flat layout for `sentry-alone` and `validator-alone`;
 `sentry/` and `validator/` subdirectories for `validator-sentry-tmkms`):
 
-| File | Source |
-|---|---|
-| `entrypoint.sh` | `validator/entrypoint.sh` from this repo (copy as-is, or adapt if the gno version requires it) |
-| `config.toml` | provided by the network (gno.land deployment URL for the target chain) |
-| `genesis.json` | provided by the network (genesis URL for the target chain) |
-| `check_status.sh` | `validator/check_status.sh` (optional but recommended, pre-start validation script) |
+| File | Source | How it gets there |
+|---|---|---|
+| `docker-compose.yml`, `.env.example` | `compose/<compose_target>/` in this repo | `deploy-compose.yml` (Ansible) |
+| `entrypoint.sh` | `validator/entrypoint.sh` in this repo | `deploy-compose.yml` (Ansible) |
+| `check_status.sh` | `validator/check_status.sh` in this repo | `deploy-compose.yml` (Ansible) |
+| `otel/otel-config.yaml` | `validator/otel/otel-config.yaml` in this repo (only when the topology has an otel-collector) | `deploy-compose.yml` (Ansible) |
+| `config.toml` | provided by the network (gno.land deployment URL for the target chain) | manual, always |
+| `genesis.json` | provided by the network (genesis URL for the target chain) | manual, always |
+| `.env` | copied from the pushed `.env.example`, then filled in | manual, always — `deploy-compose.yml` never touches `.env` |
 
-Example (sentry-alone):
+`deploy-compose.yml` only pushes the four **stable** files above — the ones
+maintained in this repo and identical across deployments of the same
+topology. It deliberately never touches `.env`, `config.toml`,
+`genesis.json`, or any secret: those change with every gno version/network
+and stay a fully manual step (see §0's rationale).
 
 ```bash
-scp validator/entrypoint.sh validator/check_status.sh root@<sentry-ip>:/root/gnoland1/
-scp compose/sentry-alone/docker-compose.yml compose/sentry-alone/.env.example root@<sentry-ip>:/root/gnoland1/
-ssh root@<sentry-ip> 'cd /root/gnoland1 && curl -fsSL <config_url> -o config.toml && curl -fsSL <genesis_url> -o genesis.json'
+ansible-playbook -i inventory.yaml deploy-compose.yml \
+  -e target=gno-sentry -e compose_target=sentry-alone
 ```
 
-For `validator-alone`, also copy `validator/otel/otel-config.yaml` into
-`otel/otel-config.yaml` next to the compose file.
+Then, still by hand, on the host:
 
-For `validator-sentry-tmkms`, repeat the `entrypoint.sh`/`config.toml`/
-`genesis.json`/`otel/otel-config.yaml` copies into **both** `sentry/` and
-`validator/` (two distinct gnoland nodes on the same host). The `tmkms/`
-subdirectory is NOT pushed by hand: see §4.
+```bash
+ssh root@<sentry-ip>
+cd /root/gnoland1
+curl -fsSL <config_url> -o config.toml
+curl -fsSL <genesis_url> -o genesis.json
+```
+
+`compose_target` is one of `sentry-alone`, `validator-alone`,
+`validator-sentry-tmkms` (matching the `compose/` directories) — see
+`deploy-compose.yml`'s header for the exact usage per topology. It creates
+the right layout on its own (flat, or nested `sentry/`+`validator/` for
+`validator-sentry-tmkms`) and copies `otel/otel-config.yaml` only when the
+topology has an otel-collector.
 
 For `tmkms-alone` (dedicated signer host), there is no gnoland node at all —
-nothing from this section applies; see §4 instead.
+`deploy-compose.yml` does not apply to it; see §4 instead
+(`setup-tmkms.yml` stages everything needed there).
 
 ## 3. `.env` and startup
 

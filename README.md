@@ -125,9 +125,10 @@ Deploys **no** application docker-compose, no reverse proxy, no secret.
 
 See **[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md)** for the full
 procedure: secrets initialization (`gnoland secrets init`, never done by
-Ansible), manual copy of `entrypoint.sh`/`config.toml`/`genesis.json`,
-picking one of the topologies in [`compose/`](#docker-compose-targets),
-`.env`, startup, validation (`check_status.sh`).
+Ansible), picking one of the topologies in [`compose/`](#docker-compose-targets),
+pushing the stable files (`deploy-compose.yml` — compose + `entrypoint.sh` +
+`check_status.sh` + `otel-config.yaml`), manually adding
+`config.toml`/`genesis.json`/`.env`, startup, validation (`check_status.sh`).
 
 ### Step 3 — Private network (optional, once nodes are validated)
 
@@ -182,6 +183,25 @@ ansible-playbook -i inventory.yaml base_setup.yml -e target=gno-validator
 ```
 
 **Roles:** `base_setup`, `docker`, `gnoland`, `ufw`, `node_exporter`, `alloy`.
+
+---
+
+### `deploy-compose.yml`
+
+**Purpose:** Push the stable, non-secret files maintained in this repo onto
+a host — the chosen `compose/<compose_target>/` (`docker-compose.yml` +
+`.env.example`), `entrypoint.sh`, `check_status.sh`, and `otel-config.yaml`
+when the topology has an otel-collector.
+
+```bash
+ansible-playbook -i inventory.yaml deploy-compose.yml \
+  -e target=gno-sentry -e compose_target=sentry-alone
+```
+
+**Never touches** `.env` (only ships `.env.example`), nor
+`config.toml`/`genesis.json`/secrets — those stay fully manual, see
+`DEPLOYMENT_RUNBOOK.md` §0/§2. `compose_target` is one of `sentry-alone`,
+`validator-alone`, `validator-sentry-tmkms`.
 
 ---
 

@@ -1,0 +1,122 @@
+---
+# =============================================================================
+# Push the stable, non-secret files maintained in this repo onto a host: the
+# chosen compose/<compose_target>/{docker-compose.yml,.env.example},
+# validator/entrypoint.sh, validator/check_status.sh, and
+# validator/otel/otel-config.yaml when the topology includes an
+# otel-collector.
+#
+# Never touches .env (only ships .env.example — the operator fills .env by
+# hand), nor config.toml/genesis.json/secrets: those change with every gno
+# version and stay a fully manual step — see DEPLOYMENT_RUNBOOK.md §0/§2.
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml deploy-compose.yml \
+#     -e target=gno-sentry -e compose_target=sentry-alone
+#   ansible-playbook -i inventory.yaml deploy-compose.yml \
+#     -e target=gno-validator -e compose_target=validator-alone
+#   ansible-playbook -i inventory.yaml deploy-compose.yml \
+#     -e target=gno-validator -e compose_target=validator-sentry-tmkms
+#
+# Variables:
+#   target         - host or inventory group to target (required)
+#   compose_target - sentry-alone | validator-alone | validator-sentry-tmkms
+#                     (required; tmkms-alone is not a gnoland node — nothing
+#                     from this playbook applies to it, see setup-tmkms.yml)
+#   gno_dir        - working directory under /root (default: gnoland1)
+# =============================================================================
+
+- name: Push stable compose files onto the target host
+  hosts: "{{ target }}"
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+    _nested: "{{ compose_target == 'validator-sentry-tmkms' }}"
+    _has_otel: "{{ compose_target in ['validator-alone', 'validator-sentry-tmkms'] }}"
+
+  tasks:
+    - name: Assert compose_target is valid
+      ansible.builtin.assert:
+        that:
+          - compose_target is defined
+          - compose_target in ['sentry-alone', 'validator-alone', 'validator-sentry-tmkms']
+        fail_msg: >-
+          compose_target must be one of: sentry-alone, validator-alone,
+          validator-sentry-tmkms (see DEPLOYMENT_RUNBOOK.md). tmkms-alone is
+          not a gnoland node — nothing here applies to it.
+
+    - name: Create the gno_dir working directory
+      ansible.builtin.file:
+        path: "/root/{{ gno_dir }}"
+        state: directory
+        mode: "0750"
+
+    - name: Create sentry/ and validator/ subdirectories (validator-sentry-tmkms only)
+      ansible.builtin.file:
+        path: "/root/{{ gno_dir }}/{{ item }}"
+        state: directory
+        mode: "0750"
+      loop: [sentry, validator]
+      when: _nested | bool
+
+    - name: Create the otel/ subdirectory
+      ansible.builtin.file:
+        path: "/root/{{ gno_dir }}/{{ 'validator/otel' if _nested | bool else 'otel' }}"
+        state: directory
+        mode: "0750"
+      when: _has_otel | bool
+
+    # --- Compose + .env.example (never .env) -----------------------------------
+    - name: Copy the compose file (docker-compose.yml)
+      ansible.builtin.copy:
+        src: "compose/{{ compose_target }}/docker-compose.yml"
+        dest: "/root/{{ gno_dir }}/docker-compose.yml"
+        mode: "0640"
+
+    - name: Copy .env.example (never .env — the operator fills .env by hand)
+      ansible.builtin.copy:
+        src: "compose/{{ compose_target }}/.env.example"
+        dest: "/root/{{ gno_dir }}/.env.example"
+        mode: "0640"
+
+    # --- entrypoint.sh -----------------------------------------------------------
+    - name: Copy entrypoint.sh (flat layout — sentry-alone/validator-alone)
+      ansible.builtin.copy:
+        src: validator/entrypoint.sh
+        dest: "/root/{{ gno_dir }}/entrypoint.sh"
+        mode: "0755"
+      when: not (_nested | bool)
+
+    - name: Copy entrypoint.sh into sentry/ and validator/ (validator-sentry-tmkms)
+      ansible.builtin.copy:
+        src: validator/entrypoint.sh
+        dest: "/root/{{ gno_dir }}/{{ item }}/entrypoint.sh"
+        mode: "0755"
+      loop: [sentry, validator]
+      when: _nested | bool
+
+    # --- otel-config.yaml (only for topologies with an otel-collector) ---------
+    - name: Copy otel-config.yaml
+      ansible.builtin.copy:
+        src: validator/otel/otel-config.yaml
+        dest: "/root/{{ gno_dir }}/{{ 'validator/otel' if _nested | bool else 'otel' }}/otel-config.yaml"
+        mode: "0644"
+      when: _has_otel | bool
+
+    # --- check_status.sh (one copy at gno_dir root, takes a directory arg) -----
+    - name: Copy check_status.sh
+      ansible.builtin.copy:
+        src: validator/check_status.sh
+        dest: "/root/{{ gno_dir }}/check_status.sh"
+        mode: "0755"
+
+    - name: Stable files pushed
+      ansible.builtin.debug:
+        msg: >-
+          Pushed compose/{{ compose_target }}/ (docker-compose.yml +
+          .env.example), entrypoint.sh, check_status.sh
+          {{ '+ otel-config.yaml ' if _has_otel | bool else '' }}to
+          /root/{{ gno_dir }}/. Still manual (see DEPLOYMENT_RUNBOOK.md):
+          gnoland secrets init, config.toml, genesis.json, .env, tmkms
+          staging (setup-tmkms.yml), docker compose up -d.
