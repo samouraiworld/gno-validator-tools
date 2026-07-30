@@ -45,8 +45,8 @@ if [ -z "$STATUS" ]; then
   exit 0
 fi
 
-HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty')"
-CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring')"
+HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
 
 if [ -z "$HEIGHT" ] || [ -z "$CATCHING_UP" ]; then
   echo "⚠️  $NODE: malformed /status response — skipping this check." >&2
