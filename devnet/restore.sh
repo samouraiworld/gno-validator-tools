@@ -21,8 +21,9 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-gnoland-test}"
 
 NODE="${1:-}"
 ARCHIVE="${2:-}"
+YES="${3:-}"
 if [ -z "$NODE" ] || [ -z "$ARCHIVE" ]; then
-  echo "Usage: $0 <node-service> <snapshot.tar.zst>" >&2
+  echo "Usage: $0 <node-service> <snapshot.tar.zst> [--yes]" >&2
   exit 2
 fi
 DATA_DIR="$NODE/gnoland-data"
@@ -53,8 +54,12 @@ if [ "$NODE" = "validator" ]; then
                              starting tmkms.
     3. This script restores CHAIN DATA only; it does NOT touch tmkms secrets.
 WARN
-  read -r -p "Proceed with validator restore? [y/N] " ans
-  case "$ans" in y|Y|yes) ;; *) echo "Aborted."; exit 1 ;; esac
+  if [ "$YES" = "--yes" ]; then
+    echo "--yes passed: skipping interactive confirmation (caller already verified the checklist above)." >&2
+  else
+    read -r -p "Proceed with validator restore? [y/N] " ans
+    case "$ans" in y|Y|yes) ;; *) echo "Aborted."; exit 1 ;; esac
+  fi
 fi
 
 echo "==> Stopping $NODE"
