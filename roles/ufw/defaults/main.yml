@@ -1,2 +1,10 @@
 ---
 # defaults file for roles/ufw
+
+# Ports restreints à une IP unique (ufw_allow_ip), typiquement un serveur de
+# monitoring qui viendrait scraper le host. Vide par défaut : depuis le
+# passage à Alloy (push/remote_write), plus aucun port de scrape entrant
+# n'est nécessaire (node_exporter, otel-collector restent en 127.0.0.1).
+# Reste disponible pour un besoin ponctuel (ex: IP d'admin sur un port
+# spécifique) sans qu'un host qui ne l'utilise pas ait à le définir.
+ufw_ports_moni: []

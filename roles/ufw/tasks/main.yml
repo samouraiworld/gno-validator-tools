@@ -28,7 +28,8 @@
     from_ip: "{{ ufw_allow_ip }}"
     to_port: "{{ item }}"
     proto: tcp
-  loop: "{{ ufw_ports_moni}}"
+  loop: "{{ ufw_ports_moni }}"
+  when: ufw_ports_moni is defined and ufw_ports_moni | length > 0
 
 - name: Enable UFW
   ufw:
