@@ -26,14 +26,24 @@
     - "{{ tmkms_remote_dir }}/run"
 
 # The reslice needs the node's priv_validator_key.json (same key whose pubkey
-# goes into genesis). Generate node secrets if missing (idempotent).
-- name: Ensure node secrets exist (source of the consensus key + genesis pubkey)
-  ansible.builtin.command:
-    cmd: >-
-      docker run --rm
-      -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data
-      --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
-    creates: "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+# goes into genesis). Ansible NEVER generates gnoland secrets — this only
+# asserts they already exist (operator runs `gnoland secrets init` manually).
+- name: Check whether validator secrets already exist
+  ansible.builtin.stat:
+    path: "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+  register: _tmkms_priv_validator_key
+
+- name: Fail if validator secrets are missing
+  ansible.builtin.assert:
+    that:
+      - _tmkms_priv_validator_key.stat.exists
+    fail_msg: |
+      {{ tmkms_node_secrets_dir }}/priv_validator_key.json introuvable.
+      Les secrets gnoland ne sont jamais générés par Ansible : lancez d'abord,
+      manuellement, sur le validateur :
+        docker run --rm -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data \
+          --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
+      puis relancez ce playbook.
 
 - name: Build tmkms image from the role Dockerfile
   when: tmkms_build_image | bool
