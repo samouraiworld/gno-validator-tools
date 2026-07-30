@@ -1,0 +1,36 @@
+---
+# =============================================================================
+# Prepare the tmkms signing sidecar on the validator host.
+#
+# Runs BEFORE the manual `docker compose up -d` of
+# compose/validator-sentry-tmkms/ — stages the tmkms image, tmkms.toml and
+# resliced signing keys. Never generates gnoland secrets: the role asserts
+# priv_validator_key.json already exists (see DEPLOYMENT_RUNBOOK.md).
+#
+# Usage:
+#   ansible-playbook -i inventory.yaml setup-tmkms.yml \
+#     -e target=gno-validator -e tmkms_chain_id=<chain-id>
+#
+# Variables:
+#   target          - host or inventory group to target (default: gno-validator)
+#   gno_dir         - working directory under /root (default: gnoland1)
+#   gno_image       - gnoland image, used only in the assert failure message
+#   tmkms_chain_id  - REQUIRED, must match the genesis chain id
+# =============================================================================
+
+- name: Prepare tmkms signing sidecar on validator
+  hosts: "{{ target | default('gno-validator') }}"
+  become: false
+
+  vars:
+    gno_dir: gnoland1
+    tmkms_enabled: true
+
+  tasks:
+    - name: Configure tmkms sidecar signer
+      ansible.builtin.include_role:
+        name: tmkms
+        apply:
+          tags: [tmkms]
+      when: tmkms_enabled | default(false) | bool
+      tags: [tmkms]
