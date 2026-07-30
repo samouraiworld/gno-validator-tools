@@ -3,8 +3,13 @@ services:
     image: "{{ gno_image }}"
     restart: on-failure
     ports:
+{% if embed_sentry | default(false) | bool %}
+      # embed_sentry: the sentry service below is the only public P2P entrypoint.
+      - 127.0.0.1:26657:26657
+{% else %}
       - 26656:26656
       - 127.0.0.1:26657:26657
+{% endif %}
     volumes:
       - ./entrypoint.sh:/entrypoint.sh:ro
       - ./config.toml:/gnoroot/config.toml:ro
@@ -17,15 +22,48 @@ services:
     entrypoint: /entrypoint.sh
     environment:
       MONIKER: "{{ moniker_validator }}"
+{% if embed_sentry | default(false) | bool %}
+      # embed_sentry: only ever talk to the co-located sentry, never to public peers.
+      PERSISTENT_PEERS: "{{ persistent_peers_sentry | default('') }}"
+      PEX: "false"
+      MAX_PEERS: 2
+      INBOUND: 0
+{% else %}
       PERSISTENT_PEERS: "{{ persistent_peers | default('') }}"
       PEX: "true"
       MAX_PEERS: 2
       INBOUND: 0
+{% endif %}
 {% if tmkms_enabled | default(false) | bool %}
       # Externalize consensus signing to the same-host tmkms sidecar
       # (entrypoint.sh turns these into the tmkms_listener fields, listen_addr last).
       TMKMS_CHAIN_ID: "{{ tmkms_chain_id }}"
       TMKMS_LISTEN_ADDR: "unix://{{ tmkms_socket_path | default('/run/gnoland/privval.sock') }}"
+{% endif %}
+{% if embed_sentry | default(false) | bool %}
+
+  # Co-located sentry: the only service exposed to the public P2P network.
+  # Relays to `validator` over the Docker compose network (no real IP needed —
+  # service name resolves via Docker's internal DNS since both are one host).
+  sentry:
+    image: "{{ gno_image }}"
+    restart: on-failure
+    ports:
+      - 26656:26656
+      - 127.0.0.1:26663:26657
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./sentry-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "{{ moniker_sentry }}"
+      SEEDS: "{{ seeds }}"
+      # seed(s) + validator's P2P address (private_peer_ids = validator's node id;
+      # validator_p2p_ip defaults to the compose service name, not a real IP).
+      PERSISTENT_PEERS: "{{ seeds }},{{ private_peer_ids }}@{{ validator_p2p_ip | default('validator') }}:26656"
+      PRIVATE_PEER_IDS: "{{ private_peer_ids }}"
 {% endif %}
 
   otel-collector:
