@@ -3,7 +3,7 @@
 # Install the snapshotter node (dedicated non-signing follower on the sentry
 # host) + hourly chain snapshots pushed to Scaleway Object Storage.
 #
-#   ansible-playbook -i inventory.yaml 8-install-snapshotter.yml --tags snapshotter
+#   ansible-playbook -i inventory.yaml install-snapshotter.yml --tags snapshotter
 #
 # The role stages the stack + scripts + systemd timer but does NOT start the
 # node. Finish on the host: fill .env (peers + Scaleway keys), `docker compose
