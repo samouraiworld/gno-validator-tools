@@ -1,0 +1,82 @@
+logging {
+  level = "warn"
+}
+
+{% if alloy_logs_enabled %}
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["container"]
+    regex         = "{{ alloy_containers_filter }}"
+    action        = "keep"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "{{ alloy_job_name }}"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = "{{ inventory_hostname }}"
+  }
+}
+
+loki.source.docker "docker" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.docker_logs.output
+  forward_to       = [loki.write.default.receiver]
+  refresh_interval = "5s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "{{ alloy_logs_remote_write_url }}"
+{% if alloy_log_mode == "direct" %}
+    headers = {
+      "Authorization" = "Bearer {{ alloy_bearer_token }}",
+    }
+{% endif %}
+  }
+}
+{% endif %}
+
+{% if alloy_metrics_targets | length > 0 %}
+prometheus.scrape "local" {
+  targets = [
+{% for t in alloy_metrics_targets %}
+    {
+      job           = "{{ t.job }}",
+      service       = "{{ t.service }}",
+      environment   = "{{ alloy_environment | default('prod') }}",
+      instance      = "{{ inventory_hostname }}",
+      "__address__" = "{{ t.address }}",
+    },
+{% endfor %}
+  ]
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "{{ alloy_remote_write_url }}"
+{% if alloy_remote_write_mode == "direct" %}
+    headers = {
+      "Authorization" = "Bearer {{ alloy_bearer_token }}",
+    }
+{% endif %}
+  }
+}
+{% endif %}

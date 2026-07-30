@@ -22,6 +22,7 @@
   roles:
     - base_setup
     - node_exporter
+    - alloy
     - docker
     - ufw
     - gnoland

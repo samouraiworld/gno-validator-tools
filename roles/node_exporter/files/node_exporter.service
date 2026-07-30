@@ -10,6 +10,7 @@ ExecStart=/opt/node_exporter/node_exporter  \
 --collector.cpu \
 --collector.meminfo \
 --collector.loadavg \
---collector.filesystem
+--collector.filesystem \
+--web.listen-address=127.0.0.1:9100
 [Install]
 WantedBy=multi-user.target

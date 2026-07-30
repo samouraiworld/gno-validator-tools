@@ -1,0 +1,6 @@
+---
+# defaults file for roles/alloy
+alloy_version: "1.6.1"
+alloy_logs_enabled: false
+alloy_metrics_targets: []
+alloy_environment: "prod"
