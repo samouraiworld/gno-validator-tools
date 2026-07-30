@@ -12,6 +12,10 @@
 # Chain snapshot archives produced by snapshot.sh (regenerated on a timer).
 snapshots/
 
+# Auto-heal state (detection counters, locks, incident backups)
+.autoheal/
+incidents/
+
 # Top-level generated artifacts
 genesis.json
 genesis_balances.txt
