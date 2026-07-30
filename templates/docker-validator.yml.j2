@@ -36,7 +36,7 @@ services:
       - ./otel/otel-config.yaml:/etc/otel/config.yaml
     command: ["--config=/etc/otel/config.yaml"]
     ports:
-      - 9464:9464
+      - 127.0.0.1:9464:9464
       - 127.0.0.1:4317:4317
 {% if tmkms_enabled | default(false) | bool %}
 

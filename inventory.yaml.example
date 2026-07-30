@@ -22,6 +22,20 @@ all:
           ufw_ports_app: [26656]
           ufw_ports_moni: [9100, 9113, 9464]
           ufw_allow_ip: <MONITORING_IP>
+          # --- Alloy (replaces promtail + node_exporter/otel network exposure) ---
+          # Points at whatever reverse proxy you set up manually in front of
+          # Loki/your metrics backend — see docs for the private network layout.
+          # Relay mode carries no bearer token on the validator.
+          alloy_logs_enabled: true
+          alloy_log_mode: "relay"
+          alloy_containers_filter: "<VALIDATOR_MONIKER>"
+          alloy_job_name: "<VALIDATOR_MONIKER>"
+          alloy_logs_remote_write_url: "<LOGS_PUSH_URL>"
+          alloy_remote_write_mode: "relay"
+          alloy_remote_write_url: "<METRICS_PUSH_URL>"
+          alloy_metrics_targets:
+            - { job: "<VALIDATOR_MONIKER>", service: "node_exporter", address: "127.0.0.1:9100" }
+            - { job: "<VALIDATOR_MONIKER>", service: "otel", address: "127.0.0.1:9464" }
 
     # --- Sentry node -----------------------------------------------------------
     sentries:
@@ -33,6 +47,13 @@ all:
           ufw_ports_app: [26656]
           ufw_ports_moni: [9100, 9113]   # sentry's own exporters only
           ufw_allow_ip: <MONITORING_IP>
+          # --- Alloy (direct mode — sentry pushes its own metrics with its own token) ---
+          alloy_remote_write_mode: "direct"
+          alloy_remote_write_url: "<METRICS_PUSH_URL>"
+          alloy_bearer_token: "<METRICS_BEARER_TOKEN>"
+          alloy_metrics_targets:
+            - { job: "gno-sentry", service: "node_exporter", address: "127.0.0.1:9100" }
+            - { job: "gno-sentry", service: "nginx_exporter", address: "127.0.0.1:9113" }
           # Validator metric proxies — add one entry per validator.
           # UFW rules for proxy ports are managed by 5b-deploy-validator-proxies.yaml.
           validator_proxies:

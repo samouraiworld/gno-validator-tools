@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  description: Installs and configures Grafana Alloy for local metrics scraping and Docker log shipping
+  author: gno-validator-tools
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []
