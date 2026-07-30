@@ -2,22 +2,22 @@
 # =============================================================================
 # Deploy log backup and rotation scripts for validator and sentry nodes
 #
-# - validator: installe backup.sh — extrait 24h de logs gnoland et SCP vers sentry
-# - sentry:    installe rotate.sh — rotation 30 jours
+# - validator: installs backup.sh — extracts 24h of gnoland logs and SCPs them to the sentry
+# - sentry:    installs rotate.sh — 30-day rotation
 #
-# Les deux scripts sont planifiés via cron à 00:10 quotidiennement.
+# Both scripts are scheduled via cron, daily at 00:10.
 #
-# Prérequis : réseau privé NON activé (connexion directe à chaque nœud)
+# Prerequisite: private network NOT yet activated (direct connection to each node)
 #
 # Usage:
 #   ansible-playbook -i inventory.yaml backup-logs.yaml
 #
 # Variables:
-#   backup_dir      - répertoire des scripts et logs (défaut: /opt/backup_logs)
-#   container_name  - nom du container gnoland sur le validator
+#   backup_dir      - directory for the scripts and logs (default: /opt/backup_logs)
+#   container_name  - name of the gnoland container on the validator
 # =============================================================================
 
-# --- Play 1 : générer la clé SSH sur le validator ----------------------------
+# --- Play 1: generate the SSH key on the validator ---------------------------
 - name: Generate SSH key on validator
   hosts: gno-validator
   become: false
@@ -38,7 +38,7 @@
       register: validator_pubkey
 
 
-# --- Play 2 : déployer rotate.sh sur le sentry + autoriser la clé validator --
+# --- Play 2: deploy rotate.sh on the sentry + authorize the validator key ---
 - name: Deploy rotate.sh on sentry and authorize validator SSH key
   hosts: gno-sentry
   become: false
@@ -87,7 +87,7 @@
         key: "{{ hostvars['gno-validator']['validator_pubkey']['content'] | b64decode }}"
 
 
-# --- Play 3 : déployer backup.sh sur le validator ----------------------------
+# --- Play 3: deploy backup.sh on the validator -------------------------------
 - name: Deploy backup.sh on validator
   hosts: gno-validator
   become: false
