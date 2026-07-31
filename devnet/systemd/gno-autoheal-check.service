@@ -1,0 +1,15 @@
+# Oneshot service that runs one stuck-detection check. Triggered by
+# gno-autoheal-check.timer. Install as a --user unit (see gno-snapshot.service
+# for the install recipe — same pattern, just point at check-stuck.sh).
+#
+# NODE must be exported before installing (sed it in, same as __DEVNET_DIR__).
+[Unit]
+Description=Check if a gno devnet node is stuck and auto-heal it
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__DEVNET_DIR__
+ExecStart=/usr/bin/env bash -c './check-stuck.sh __NODE__'
+SuccessExitStatus=0
