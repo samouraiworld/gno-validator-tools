@@ -2,6 +2,11 @@
 # =============================================================================
 # Ansible inventory — gno-validator-tools
 # Copy this file to inventory.yaml and replace all <PLACEHOLDER> values.
+#
+# Only base_setup.yml (+ the optional setup-private-network.yml,
+# install-snapshotter.yml, setup-tmkms.yml, backup-logs.yaml) reads this
+# inventory. gnoland itself (docker-compose + config) is deployed manually,
+# see DEPLOYMENT_RUNBOOK.md.
 # =============================================================================
 
 all:
@@ -20,12 +25,16 @@ all:
           public_ip: <VALIDATOR_PUBLIC_IP>
           private_ip: <VALIDATOR_PRIVATE_IP>
           ufw_ports_app: [26656]
-          ufw_ports_moni: [9100, 9113, 9464]
-          ufw_allow_ip: <MONITORING_IP>
+          # ufw_ports_moni / ufw_allow_ip: left empty by default (the ufw role
+          # treats them as optional). Since the switch to Alloy (push /
+          # remote_write), no metrics port needs to be exposed for inbound
+          # scraping anymore — node_exporter and otel-collector stay on
+          # 127.0.0.1. See NETWORK_AND_REVERSE_PROXY.md.
+
           # --- Alloy (replaces promtail + node_exporter/otel network exposure) ---
-          # Points at whatever reverse proxy you set up manually in front of
-          # Loki/your metrics backend — see docs for the private network layout.
-          # Relay mode carries no bearer token on the validator.
+          # Points at the reverse proxy set up by hand in front of the
+          # logs/metrics backend — see NETWORK_AND_REVERSE_PROXY.md. "relay"
+          # mode carries no bearer token on the validator.
           alloy_logs_enabled: true
           alloy_log_mode: "relay"
           alloy_containers_filter: "<VALIDATOR_MONIKER>"
@@ -37,6 +46,18 @@ all:
             - { job: "<VALIDATOR_MONIKER>", service: "node_exporter", address: "127.0.0.1:9100" }
             - { job: "<VALIDATOR_MONIKER>", service: "otel", address: "127.0.0.1:9464" }
 
+          # --- tmkms sidecar (optional — see setup-tmkms.yml) -------------------
+          # uds mode (default, same host, compose/validator-sentry-tmkms/):
+          # tmkms_chain_id: <CHAIN_ID>
+          # tmkms_image: "tmkms:local"
+          # tmkms_build_image: true
+
+          # tcp mode (dedicated signer host, compose/validator-alone/ +
+          # compose/tmkms-alone/ on the signer host — see TMKMS.md §4):
+          # open the signer port only to the signer host's IP:
+          # ufw_tmkms_port: 26659
+          # ufw_tmkms_signer_ip: <SIGNER_HOST_IP>
+
     # --- Sentry node -----------------------------------------------------------
     sentries:
       hosts:
@@ -45,42 +66,22 @@ all:
           public_ip: <SENTRY_PUBLIC_IP>
           private_ip: <SENTRY_PRIVATE_IP>
           ufw_ports_app: [26656]
-          ufw_ports_moni: [9100, 9113]   # sentry's own exporters only
-          ufw_allow_ip: <MONITORING_IP>
-          # --- Alloy (direct mode — sentry pushes its own metrics with its own token) ---
+          # --- Alloy (direct mode — the sentry pushes its own metrics with its own token) ---
           alloy_remote_write_mode: "direct"
           alloy_remote_write_url: "<METRICS_PUSH_URL>"
           alloy_bearer_token: "<METRICS_BEARER_TOKEN>"
           alloy_metrics_targets:
             - { job: "gno-sentry", service: "node_exporter", address: "127.0.0.1:9100" }
-            - { job: "gno-sentry", service: "nginx_exporter", address: "127.0.0.1:9113" }
-          # Validator metric proxies — add one entry per validator.
-          # UFW rules for proxy ports are managed by 5b-deploy-validator-proxies.yaml.
-          validator_proxies:
-            - name: validator-1
-              private_ip: <VALIDATOR_PRIVATE_IP>
-              node_exporter_port: 9200   # port exposed on sentry → validator:9100
-              otel_port: 9464            # port exposed on sentry → validator:9464
-            # - name: validator-2
-            #   private_ip: <VALIDATOR_2_PRIVATE_IP>
-            #   node_exporter_port: 9201
-            #   otel_port: 9465
 
-    # --- Betanet group (validator + sentry — used by upload-betanet-deployment) -
-    betanet:
-      hosts:
-        gno-sentry:
-          ansible_host: <SENTRY_PUBLIC_IP>
-          public_ip: <SENTRY_PUBLIC_IP>
-          private_ip: <SENTRY_PRIVATE_IP>
-        gno-validator:
-          ansible_host: <VALIDATOR_PRIVATE_IP>   # private VLAN IP (overridden by pre_tasks)
-          public_ip: <VALIDATOR_PUBLIC_IP>
-          private_ip: <VALIDATOR_PRIVATE_IP>
-
-    # --- Monitoring server -----------------------------------------------------
-    # Note: group must be named 'monitoring' for group_vars/monitoring.yml to load.
-    monitoring:
-      hosts:
-        monitoring-server:
-          ansible_host: <MONITORING_PUBLIC_IP>
+    # --- tmkms signer host (optional, tcp mode only — see TMKMS.md §4) ----------
+    # signers:
+    #   hosts:
+    #     gno-tmkms-signer:
+    #       ansible_host: <SIGNER_HOST_IP>
+    #       public_ip: <SIGNER_HOST_IP>
+    #       private_ip: <SIGNER_HOST_IP>
+    #       tmkms_chain_id: <CHAIN_ID>
+    #       tmkms_connection_mode: "tcp"
+    #       tmkms_validator_peer_id: <VALIDATOR_NODE_ID_HEX>
+    #       tmkms_validator_ip: <VALIDATOR_PUBLIC_IP>
+    #       tmkms_validator_port: 26659

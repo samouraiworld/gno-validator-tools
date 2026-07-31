@@ -1,2 +1,16 @@
 ---
 # defaults file for roles/ufw
+
+# Ports restricted to a single IP (ufw_allow_ip), typically a monitoring
+# server that would scrape the host. Empty by default: since the switch to
+# Alloy (push/remote_write), no inbound scrape port is needed anymore
+# (node_exporter, otel-collector stay on 127.0.0.1). Kept available for a
+# one-off need (e.g. an admin IP on a specific port) without forcing every
+# host that doesn't use it to define it.
+ufw_ports_moni: []
+
+# tmkms TCP signer port (validator host only, tmkms_connection_mode: "tcp").
+# Restricted to the signer host's IP — empty/no-op by default. See
+# roles/tmkms, compose/tmkms-alone/.
+ufw_tmkms_port: ""
+ufw_tmkms_signer_ip: ""

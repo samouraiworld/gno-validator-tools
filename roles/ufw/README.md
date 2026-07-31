@@ -48,9 +48,20 @@ ufw_ports_moni:
   - 9113   # Nginx exporter
 ```
 
+### ✔️ Allows the tmkms TCP signer port (optional)
+
+Restricted to a single IP (the dedicated signer host), same pattern as the
+monitoring ports above — see `roles/tmkms` (`tmkms_connection_mode: "tcp"`)
+and `compose/tmkms-alone/`. No-op unless both are set.
+
+```yaml
+ufw_tmkms_port: 26659
+ufw_tmkms_signer_ip: 10.10.0.20 # signer host IP
+```
+
 ### ✔️ Enables UFW
 
-Activates the firewall after all rules are applie
+Activates the firewall after all rules are applied.
 
 ---
 

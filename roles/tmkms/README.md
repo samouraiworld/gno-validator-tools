@@ -1,22 +1,26 @@
 # roles/tmkms
 
 Externalize a gnoland validator's **consensus signing** to a [tmkms] sidecar
-container (softsign backend, Unix socket transport). gnoland opens a privval
-listener on a Unix-domain socket (UDS); tmkms dials in and signs every block
-proposal and precommit. The consensus key lives in tmkms, not in the gnoland
-process.
+container (softsign backend). Two transports, picked via
+`tmkms_connection_mode`:
+
+- **`uds`** (default) — same host as the validator, Unix socket. gnoland
+  opens a privval listener on a Unix-domain socket; tmkms dials in and signs.
+  Reference: `compose/validator-sentry-tmkms/`.
+- **`tcp`** — dedicated signer host, separate from the validator, over TCP.
+  Reference implementation this role reuses: `tmkms-lab/` (proven 2-VM lab
+  pattern) + `compose/tmkms-alone/`.
+
+In both modes, the consensus key lives in tmkms, not in the gnoland process.
 
 [tmkms]: https://github.com/iqlusioninc/tmkms
-
-> For the 2-VM TCP variant (tmkms on a separate signer host), see
-> `../../tmkms-lab/`.
 
 ---
 
 ## Purpose
 
-Running tmkms as a same-host sidecar gives two benefits over the default
-in-process signing:
+Running tmkms as a sidecar gives two benefits over the default in-process
+signing:
 
 - The consensus key (`priv_validator_key.json`) is no longer loaded by the
   gnoland process at runtime; only the tmkms container holds the extracted
@@ -24,9 +28,9 @@ in-process signing:
 - The signing code path is isolated to a dedicated container (tmkms v0.15.0,
   softsign feature only).
 
-On a single host the key material is still on the same box, so this is a
-defence-in-depth measure rather than full key isolation. Full isolation requires
-the 2-VM TCP topology (`tmkms-lab/`).
+In `uds` mode the key material is still on the same box, so this is a
+defence-in-depth measure rather than full key isolation. Full isolation
+requires the `tcp` mode (dedicated signer host, not P2P-exposed).
 
 ---
 
@@ -49,34 +53,40 @@ variables except `tmkms_chain_id`.
 | --- | --- | --- |
 | `tmkms_enabled` | `false` | Master switch. When `false` the role is a no-op and the compose file omits the tmkms service entirely. |
 | `tmkms_chain_id` | `""` | **Required.** Must match the genesis `chain_id` and the `tmkms_listener.chain_id` in config.toml. |
-| `tmkms_remote_dir` | `/root/<gno_dir>/tmkms` | Directory created on the validator host to hold the tmkms config, secrets, and socket. |
-| `tmkms_node_data_dir` | `/root/<gno_dir>/gnoland-data` | Path to the gnoland data dir (source of `priv_validator_key.json`). |
-| `tmkms_node_secrets_dir` | `<tmkms_node_data_dir>/secrets` | Derived from `tmkms_node_data_dir`; where `priv_validator_key.json` lives. |
+| `tmkms_connection_mode` | `"uds"` | `"uds"` (same host as the validator) or `"tcp"` (dedicated signer host). |
+| `tmkms_remote_dir` | `/root/<gno_dir>/tmkms` | Directory created on this host to hold the tmkms config and secrets (+ `run/` in uds mode). |
+| `tmkms_node_data_dir` | `/root/<gno_dir>/validator/gnoland-data` | **uds mode only.** Path to the validator's gnoland data dir on this same host (source of `priv_validator_key.json`). Not read in tcp mode. |
+| `tmkms_node_secrets_dir` | `<tmkms_node_data_dir>/secrets` | Derived from `tmkms_node_data_dir`; where `priv_validator_key.json` lives (uds mode). |
+| `tmkms_validator_peer_id` | `""` | **tcp mode, required.** Validator's hex peer-id (`gnoland secrets get`) — pins `addr` so tmkms only ever signs for this validator. |
+| `tmkms_validator_ip` | `""` | **tcp mode, required.** IP of the validator host, reachable from this signer host. |
+| `tmkms_validator_port` | `26659` | **tcp mode.** TCP port the validator's tmkms_listener listens on. |
 | `tmkms_image` | `tmkms:local` | Docker image tag for the tmkms container. |
-| `tmkms_build_image` | `true` | When `true`, build the image on the validator host from `files/Dockerfile`. Set to `false` to use a pre-pushed registry image. |
-| `tmkms_socket_path` | `/run/gnoland/privval.sock` | UDS path shared between the tmkms and gnoland containers via a Docker volume mount. |
+| `tmkms_build_image` | `true` | When `true`, build the image on this host from `files/Dockerfile`. Set to `false` to use a pre-pushed registry image. |
+| `tmkms_socket_path` | `/run/gnoland/privval.sock` | **uds mode only.** Socket path shared between the tmkms and gnoland containers via a Docker volume mount. |
 
 ---
 
 ## What the role does
 
-The role runs on the validator host (as root) **before** `docker compose up`,
-and is safe to re-run at any time (all tasks are idempotent):
+The role is invoked by `setup-tmkms.yml`, runs as root, **before**
+`docker compose up`, and is safe to re-run at any time (all tasks are
+idempotent). It never generates gnoland secrets — every check below asserts
+and fails with a clear message instead.
+
+**uds mode** (runs on the validator host):
 
 1. **Assert** `tmkms_chain_id` is non-empty.
 2. **Install `jq`** via apt (needed for the consensus key reslice step).
 3. **Create directories**: `tmkms/`, `tmkms/secrets/`, `tmkms/run/` under
    `tmkms_remote_dir`, all mode `0700`.
-4. **Ensure node secrets exist**: if `priv_validator_key.json` is absent, run
-   `gnoland secrets init` inside a temporary gnoland container to generate the
-   key. The same public key must be registered in genesis.
+4. **Assert node secrets exist**: fail with a clear message if
+   `priv_validator_key.json` is absent — the operator runs
+   `gnoland secrets init` manually first (see `DEPLOYMENT_RUNBOOK.md`).
 5. **Build the tmkms image** (when `tmkms_build_image: true`): copy
    `files/Dockerfile` to the host and run `docker build`.
-6. **Render `tmkms.toml`** from `templates/tmkms.toml.j2` into
-   `tmkms_remote_dir/tmkms.toml` (mode `0600`). The template configures:
-   - `[[chain]]` with `tmkms_chain_id`
-   - `[[providers.softsign]]` pointing at `secrets/consensus.key`
-   - `[[validator]]` with `addr = "unix://<tmkms_socket_path>"`
+6. **Render `tmkms.toml`** from `templates/tmkms.toml.j2` (mode `0600`):
+   `[[chain]]` with `tmkms_chain_id`, `[[providers.softsign]]` pointing at
+   `secrets/consensus.key`, `[[validator]]` with `addr = "unix://<tmkms_socket_path>"`.
 7. **Reslice the consensus key**: extract the 32-byte ed25519 seed from
    `priv_validator_key.json` (which stores the 64-byte seed‖pubkey in base64)
    and write it as `secrets/consensus.key` (base64, mode `0600`). This step
@@ -85,20 +95,40 @@ and is safe to re-run at any time (all tasks are idempotent):
 8. **Generate the kms-identity key**: write 32 random bytes (base64) to
    `secrets/kms-identity.key` (mode `0600`) once.
 
-After the role completes, `docker compose up -d` starts the tmkms sidecar.
-The compose templates (`templates/docker-validator*.yml.j2`) add the `tmkms`
-service and pass `TMKMS_*` environment variables to the validator when
-`tmkms_enabled: true`. The validator's `entrypoint.sh` translates those
-variables into the `tmkms_listener` config fields.
+**tcp mode** (runs on the dedicated signer host — steps 1, 2, 5, 7 and 8
+above are identical, except):
+
+- step 3 (**create directories**): `tmkms/`, `tmkms/secrets/` only — no
+  `run/` (no shared socket dir between two separate hosts).
+- step 4 (**assert the consensus key was copied here**): fail with a clear
+  message (including the exact `scp` command) if `secrets/consensus.key` is
+  absent — it must be resliced on the validator host and copied over
+  out-of-band, never generated on the signer host (see `tmkms-lab/README.md`
+  step 2).
+- step 6 (**render `tmkms.toml`**): `[[validator]]` gets
+  `addr = "tcp://<tmkms_validator_peer_id>@<tmkms_validator_ip>:<tmkms_validator_port>"`
+  instead of the `unix://` address.
+- extra step 9 (**derive and print the kms-identity pubkey**): tcp mode only.
+  Runs the same one-off Go program as `tmkms-lab/tmkms/setup-vm2-tmkms.sh`
+  (kept identical on purpose) via `docker run golang:1-alpine`, read-only, to
+  turn the `kms-identity.key` seed into its `ed25519:<hex>` pubkey — printed
+  in the final debug message. That value goes into
+  `TMKMS_ALLOWED_KMS_PUBKEYS` on the validator host.
+
+After the role completes, `docker compose up -d` starts the tmkms sidecar —
+`compose/validator-sentry-tmkms/` (uds) or `compose/tmkms-alone/` (tcp,
+signer host) + `compose/validator-alone/` (tcp, validator host, with the
+`TMKMS_*` env vars filled in). The validator's `entrypoint.sh` translates
+those variables into the `tmkms_listener` config fields.
 
 ---
 
 ## `tmkms_enabled` switch
 
 Setting `tmkms_enabled: false` (the default) makes the role a complete no-op:
-no tasks run and the compose templates omit the tmkms service. Flip to `true`
-in `group_vars/betanet.yml` (or the host vars) when you are ready to use the
-sidecar.
+no tasks run. Flip to `true` when invoking `setup-tmkms.yml` (directly with
+`-e tmkms_enabled=true`, or via inventory host_vars) when you are ready to
+use the sidecar.
 
 ---
 

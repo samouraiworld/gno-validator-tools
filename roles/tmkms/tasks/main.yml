@@ -1,8 +1,12 @@
 ---
-# tasks file for roles/tmkms — same-host softsign sidecar (Unix socket).
-# Runs on the validator host (as root) BEFORE `docker compose up`. Prepares the
-# tmkms image, config and signer keys so the sidecar can sign for the validator.
-# For the 2-VM TCP variant see ../../tmkms-lab/ (manual runbook).
+# tasks file for roles/tmkms — softsign sidecar, two transports:
+#   - uds (default): runs on the validator host BEFORE `docker compose up`.
+#     Prepares the tmkms image, config and signer keys so the sidecar can
+#     sign for the co-located validator (compose/validator-sentry-tmkms/).
+#   - tcp: runs on a SEPARATE, dedicated signer host. No shared socket dir
+#     with the validator; the resliced consensus.key is copied here
+#     out-of-band from the validator host (see DEPLOYMENT_RUNBOOK.md).
+#     Reference implementation: tmkms-lab/ (proven 2-VM lab pattern).
 
 - name: Assert chain_id is set
   ansible.builtin.assert:
@@ -10,12 +14,23 @@
       - tmkms_chain_id | length > 0
     fail_msg: "tmkms_chain_id must be set (must match the genesis chain id)."
 
+- name: Assert TCP mode has the required validator peer-id / IP
+  ansible.builtin.assert:
+    that:
+      - tmkms_validator_peer_id | length > 0
+      - tmkms_validator_ip | length > 0
+    fail_msg: >-
+      tmkms_connection_mode: "tcp" requires tmkms_validator_peer_id and
+      tmkms_validator_ip. The peer-id pin is mandatory on TCP — an unpinned
+      addr lets tmkms sign for an impostor (see TMKMS.md §4).
+  when: tmkms_connection_mode == "tcp"
+
 - name: Ensure jq is installed (consensus key reslice)
   ansible.builtin.apt:
     name: jq
     state: present
 
-- name: Create tmkms directories on the validator
+- name: Create tmkms directories (config + secrets)
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -23,17 +38,62 @@
   loop:
     - "{{ tmkms_remote_dir }}"
     - "{{ tmkms_remote_dir }}/secrets"
-    - "{{ tmkms_remote_dir }}/run"
 
-# The reslice needs the node's priv_validator_key.json (same key whose pubkey
-# goes into genesis). Generate node secrets if missing (idempotent).
-- name: Ensure node secrets exist (source of the consensus key + genesis pubkey)
-  ansible.builtin.command:
-    cmd: >-
-      docker run --rm
-      -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data
-      --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
-    creates: "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+- name: Create tmkms run/ directory (uds mode only — shared privval socket dir)
+  ansible.builtin.file:
+    path: "{{ tmkms_remote_dir }}/run"
+    state: directory
+    mode: "0700"
+  when: tmkms_connection_mode == "uds"
+
+# uds mode: the reslice needs the node's priv_validator_key.json (same key
+# whose pubkey goes into genesis), which lives on this same host. Ansible
+# NEVER generates gnoland secrets — this only asserts they already exist
+# (operator runs `gnoland secrets init` manually).
+- name: Check whether validator secrets already exist (uds mode)
+  ansible.builtin.stat:
+    path: "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
+  register: _tmkms_priv_validator_key
+  when: tmkms_connection_mode == "uds"
+
+- name: Fail if validator secrets are missing (uds mode)
+  ansible.builtin.assert:
+    that:
+      - _tmkms_priv_validator_key.stat.exists
+    fail_msg: |
+      {{ tmkms_node_secrets_dir }}/priv_validator_key.json not found.
+      Ansible never generates gnoland secrets: run this manually on the
+      validator first:
+        docker run --rm -v {{ tmkms_node_data_dir }}:/gnoroot/gnoland-data \
+          --entrypoint /usr/bin/gnoland {{ gno_image }} secrets init
+      then re-run this playbook.
+  when: tmkms_connection_mode == "uds"
+
+# tcp mode: this host is the dedicated signer, not the validator — there is
+# no local priv_validator_key.json to reslice here. The already-resliced
+# consensus.key must be copied in out-of-band from the validator host (same
+# jq one-liner as the uds reslice below, run there — see tmkms-lab/README.md
+# step 2 and DEPLOYMENT_RUNBOOK.md). Assert it, never generate it.
+- name: Check whether the resliced consensus key was copied here (tcp mode)
+  ansible.builtin.stat:
+    path: "{{ tmkms_remote_dir }}/secrets/consensus.key"
+  register: _tmkms_consensus_key_tcp
+  when: tmkms_connection_mode == "tcp"
+
+- name: Fail if consensus.key is missing on this signer host (tcp mode)
+  ansible.builtin.assert:
+    that:
+      - _tmkms_consensus_key_tcp.stat.exists
+    fail_msg: |
+      {{ tmkms_remote_dir }}/secrets/consensus.key not found on this signer
+      host. In tcp mode this key is never resliced locally here (the
+      validator's priv_validator_key.json lives on a different host):
+      reslice it on the validator host and copy it here, e.g.:
+        scp <validator-host>:{{ tmkms_node_secrets_dir }}/consensus.key \
+          {{ tmkms_remote_dir }}/secrets/consensus.key
+      (see tmkms-lab/README.md step 2, or reslice it by hand with the same
+      jq command this role uses in uds mode.)
+  when: tmkms_connection_mode == "tcp"
 
 - name: Build tmkms image from the role Dockerfile
   when: tmkms_build_image | bool
@@ -56,16 +116,17 @@
     dest: "{{ tmkms_remote_dir }}/tmkms.toml"
     mode: "0600"
 
-# reslice: gnoland stores base64 of the 64-byte seed‖pubkey; softsign wants
-# base64 of just the 32-byte seed. Idempotent (creates:) so an existing signing
-# key is never silently changed — remove consensus.key to force a refresh after
-# a deliberate key rotation.
-- name: Reslice consensus key from priv_validator_key.json
+# uds mode reslice: gnoland stores base64 of the 64-byte seed‖pubkey;
+# softsign wants base64 of just the 32-byte seed. Idempotent (creates:) so an
+# existing signing key is never silently changed — remove consensus.key to
+# force a refresh after a deliberate key rotation.
+- name: Reslice consensus key from priv_validator_key.json (uds mode)
   ansible.builtin.shell:
     cmd: >-
       jq -r '.priv_key.value' "{{ tmkms_node_secrets_dir }}/priv_validator_key.json"
       | base64 -d | head -c 32 | base64 -w0 > "{{ tmkms_remote_dir }}/secrets/consensus.key"
     creates: "{{ tmkms_remote_dir }}/secrets/consensus.key"
+  when: tmkms_connection_mode == "uds"
 
 - name: Lock down consensus key
   ansible.builtin.file:
@@ -82,9 +143,55 @@
     path: "{{ tmkms_remote_dir }}/secrets/kms-identity.key"
     mode: "0600"
 
-- name: tmkms sidecar prepared
+# tcp mode: the validator's TMKMS_ALLOWED_KMS_PUBKEYS needs this signer's
+# kms-identity pubkey (ed25519:<hex>), derived from the seed generated above.
+# Same one-off Go program as tmkms-lab/tmkms/setup-vm2-tmkms.sh (kept
+# byte-identical on purpose) — read-only, never regenerates the key.
+- name: Stage the kms-identity pubkey derivation helper (tcp mode)
+  ansible.builtin.copy:
+    dest: "{{ tmkms_remote_dir }}/kmsgen.go"
+    mode: "0644"
+    content: |
+      package main
+      import ("crypto/ed25519";"encoding/base64";"encoding/hex";"fmt";"os")
+      func main(){
+       path:=os.Args[1]
+       b,err:=os.ReadFile(path)
+       if err!=nil { fmt.Fprintln(os.Stderr,"cannot read kms-identity.key"); os.Exit(1) }
+       s,err:=base64.StdEncoding.DecodeString(string(b))
+       if err!=nil || len(s)!=ed25519.SeedSize { fmt.Fprintln(os.Stderr,"invalid kms-identity seed"); os.Exit(1) }
+       p:=ed25519.NewKeyFromSeed(s).Public().(ed25519.PublicKey)
+       fmt.Println("ed25519:"+hex.EncodeToString(p)) }
+  when: tmkms_connection_mode == "tcp"
+
+- name: Derive the kms-identity pubkey (tcp mode)
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      -v {{ tmkms_remote_dir }}/secrets:/s
+      -v {{ tmkms_remote_dir }}/kmsgen.go:/kmsgen.go:ro
+      golang:1-alpine go run /kmsgen.go /s/kms-identity.key
+  register: _tmkms_kms_identity_pubkey
+  changed_when: false
+  when: tmkms_connection_mode == "tcp"
+
+- name: tmkms sidecar prepared (uds)
   ansible.builtin.debug:
     msg: >-
       tmkms ready (uds / softsign, chain_id={{ tmkms_chain_id }}).
       The validator's tmkms_listener is set by entrypoint.sh via TMKMS_* env;
       `docker compose up -d` will start the tmkms sidecar.
+  when: tmkms_connection_mode == "uds"
+
+- name: tmkms sidecar prepared (tcp)
+  ansible.builtin.debug:
+    msg: >-
+      tmkms ready (tcp / softsign, chain_id={{ tmkms_chain_id }}) on this
+      signer host, listening for {{ tmkms_validator_peer_id }}@{{ tmkms_validator_ip }}.
+      kms-identity pubkey (TMKMS_ALLOWED_KMS_PUBKEYS on the validator host):
+      {{ _tmkms_kms_identity_pubkey.stdout }}
+      On the validator host, set TMKMS_LISTEN_ADDR=tcp://0.0.0.0:{{ tmkms_validator_port }}
+      and TMKMS_ALLOWED_KMS_PUBKEYS to the value above (see
+      compose/validator-alone/.env.example), then `docker compose up -d` here
+      (compose/tmkms-alone/) and on the validator host.
+  when: tmkms_connection_mode == "tcp"

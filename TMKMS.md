@@ -49,53 +49,48 @@ load-balancing/HA mechanism (see Horcrux for that, out of scope here).
 | Transport | Unix socket, shared Docker volume | TCP, firewalled |
 | Isolation | Process isolation only — key still lives on the exposed validator box | Real host isolation — key lives on a separate, non-P2P-exposed box |
 | Auth | Socket file perms (`0600`) | `allowed_kms_pubkeys` (tmkms's pubkey) **+** peer-id pinned in tmkms's `addr` |
-| Ansible support | ✅ `roles/tmkms/` + `3-install-validator-node.yml` (`tmkms_enabled: true`) | ❌ not yet a role — manual procedure, see §4 |
-| Reference impl | This repo, prod | `tmkms-lab/` (lab, 2 Vagrant/cloud VMs) + `.claude/tmkms-tcp-test-runbook.md` |
+| Ansible support | ✅ `roles/tmkms/` + `setup-tmkms.yml` (`tmkms_connection_mode: "uds"`, default) | ✅ `roles/tmkms/` + `setup-tmkms.yml` (`tmkms_connection_mode: "tcp"`), on the dedicated signer host |
+| Compose | `compose/validator-sentry-tmkms/` | `compose/validator-alone/` (validator host) + `compose/tmkms-alone/` (signer host) |
+| Reference impl | This repo, prod | `tmkms-lab/` (proven 2-VM lab pattern, reused as-is by the role) + `.claude/tmkms-tcp-test-runbook.md` |
 
-UDS is what's deployed on `gno-test14` today. TCP is the documented upgrade
-path when you want the signer off the validator box (the real security win
-on cloud, since softsign is "key in a file" either way — see
-`.claude/tmkms-migration-plan.md` §5-6).
+UDS is what's deployed on `gno-test14` today. TCP is the upgrade path when
+you want the signer off the validator box (the real security win on cloud,
+since softsign is "key in a file" either way — see
+`.claude/tmkms-migration-plan.md` §5-6), now equally supported by
+`roles/tmkms/` — see §4.
 
 ---
 
 ## 3. Deploying on one machine (UDS sidecar)
 
-Prerequisites: `1-base_setup.yml` already ran on the target (docker, ufw,
+Prerequisites: `base_setup.yml` already ran on the target (docker, ufw,
 gnoland binary). A `gno_image` that includes `tmkms_listener` support (PR
 [#5718](https://github.com/gnolang/gno/pull/5718), commit `a870686e4` —
 merged in `chain/topaz`; check any other chain branch before assuming it's
 there).
 
 ```bash
-ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
+ansible-playbook -i inventory.yaml setup-tmkms.yml \
   -e target=gno-validator \
-  -e tmkms_enabled=true \
-  -e tmkms_chain_id=<chain_id-matching-genesis> \
-  --tags tmkms,config,compose
+  -e tmkms_chain_id=<chain_id-matching-genesis>
 ```
 
-- `--tags config` is required (not just `tmkms,compose`) so
-  `docker-validator*.yml.j2` gets **re-rendered** with the `tmkms:` service +
-  `TMKMS_*` env — otherwise `docker compose up` reuses a stale compose file
-  without the sidecar. `config` also re-downloads `genesis_url`/`config_url`
-  — **back up `genesis.json`/`config.toml` first** if you hand-crafted them
-  (e.g. a `-lazy` throwaway genesis), then restore them after the run.
-- `include_role: tmkms` must carry `apply: tags: [tmkms]` (fixed in this
-  repo) — without it, `--tags tmkms` selects the include statement but
-  **silently skips every task inside the role** (dynamic includes don't
-  propagate tags to their children by default), including the image build.
-  Symptom if this regresses: `docker compose up` tries to `pull tmkms:local`
-  and fails with "repository does not exist".
+`tmkms_connection_mode` defaults to `"uds"`, no need to pass it explicitly.
+No `--tags`/re-render gotcha here anymore: `compose/validator-sentry-tmkms/`
+is a static compose file that already includes the `tmkms` service and the
+`TMKMS_*` env unconditionally — nothing to re-render before
+`docker compose up -d` (see `DEPLOYMENT_RUNBOOK.md` for the full manual
+deployment sequence: secrets, non-secret files, `.env`, start).
 
-What the role does (`roles/tmkms/tasks/main.yml`, idempotent, safe to re-run):
-assert `tmkms_chain_id`, install `jq`, create `tmkms/{,secrets,run}`, ensure
-`priv_validator_key.json` exists (via `gnoland secrets init` in a throwaway
-container if missing), build `tmkms:local` from `files/Dockerfile` (or use a
+What the role does (`roles/tmkms/tasks/main.yml`, idempotent, safe to re-run,
+never generates gnoland secrets): assert `tmkms_chain_id`, install `jq`,
+create `tmkms/{,secrets,run}`, assert `priv_validator_key.json` already
+exists (fails with a clear message otherwise — run `gnoland secrets init`
+manually first), build `tmkms:local` from `files/Dockerfile` (or use a
 pre-pushed image if `tmkms_build_image: false`), render `tmkms.toml`, reslice
 the 32-byte seed out of `priv_validator_key.json` into `secrets/consensus.key`
 (`creates:` guarded — never silently overwritten), generate
-`secrets/kms-identity.key` once.
+`secrets/kms-identity.key` once. Full detail: `roles/tmkms/README.md`.
 
 Verify: `docker compose logs tmkms` → `signed Proposal/Prevote/Precommit`;
 `docker compose logs validator` → `Committed state`. Kill the `tmkms`
@@ -106,30 +101,58 @@ proof signing is externalized.
 
 ## 4. Deploying on two machines (TCP signer)
 
-Not yet an Ansible role — reproduce the proven manual flow in
-`tmkms-lab/README.md` (lab naming: VM1 = validator+sentry, VM2 = signer;
-in prod, use your real validator host as "VM1" and a dedicated non-P2P-exposed
-box as "VM2"):
+Now a first-class mode of `roles/tmkms/` (`tmkms_connection_mode: "tcp"`),
+reusing the proven `tmkms-lab/` pattern rather than reinventing it. The role
+runs on the **dedicated signer host** (not the validator), which needs
+`base_setup.yml`'s `docker` role but not the rest of the gnoland stack.
 
-1. **Validator host**: bootstrap secrets + genesis (or, in prod, already has
-   them from a normal install). Get the validator's **hex peer-id**
-   (`gnoland secrets get` / printed by `bootstrap.sh` in the lab).
-2. **Copy the consensus key to the signer host**: reslice it there (same
-   `roles/tmkms` reslice logic, or `tmkms-lab/tmkms/setup-vm2-tmkms.sh` as a
-   reference script) — `scp` the resliced `consensus.key`, never the raw
-   `priv_validator_key.json`, over a channel you control.
-3. **Signer host**: build/run `tmkms:local`, render `tmkms.toml` with
-   `addr = "tcp://<peer-id>@<validator-ip>:26659"` (peer-id is **mandatory**
-   in TCP — an unpinned `addr` lets tmkms sign for an impostor). Start it,
-   note the printed `ed25519:...` — that's the `kms-identity` pubkey.
-4. **Validator host**: set `TMKMS_ALLOWED_KMS_PUBKEYS` (a.k.a. `TMKMS_ALLOW`)
-   to that `ed25519:...` value (**required** in TCP — empty = fail-open,
-   accepts any signer), open the firewall to the signer IP only on 26659,
-   deny it globally otherwise, start the validator.
+1. **Validator host**: secrets already initialized (`gnoland secrets init`
+   manual, see `DEPLOYMENT_RUNBOOK.md`). Get the validator's **hex peer-id**
+   (`gnoland secrets get` → `node_id.id`).
+2. **Reslice the consensus key on the validator host and copy it to the
+   signer host** — the role does not do this for you in tcp mode (the
+   validator's `priv_validator_key.json` lives on a different host than the
+   one the role runs on):
+
+   ```bash
+   # on the validator host
+   jq -r '.priv_key.value' gnoland-data/secrets/priv_validator_key.json \
+     | base64 -d | head -c 32 | base64 -w0 > consensus.key
+   scp consensus.key <signer-host>:/root/<gno_dir>/tmkms/secrets/consensus.key
+   ```
+
+   (same one-liner `roles/tmkms` uses internally for uds mode; see also
+   `tmkms-lab/tmkms/setup-vm2-tmkms.sh` step 2 for the reference lab flow).
+3. **Signer host**: run the role —
+
+   ```bash
+   ansible-playbook -i inventory.yaml setup-tmkms.yml \
+     -e target=<signer-host> \
+     -e tmkms_connection_mode=tcp \
+     -e tmkms_chain_id=<chain_id-matching-genesis> \
+     -e tmkms_validator_peer_id=<hex-from-step-1> \
+     -e tmkms_validator_ip=<validator-ip>
+   ```
+
+   Builds `tmkms:local`, asserts `secrets/consensus.key` is present (from
+   step 2, fails with the exact `scp` command otherwise), generates
+   `kms-identity.key`, renders `tmkms.toml` with
+   `addr = "tcp://<peer-id>@<validator-ip>:26659"` (peer-id pin is
+   **mandatory** in TCP — an unpinned `addr` lets tmkms sign for an
+   impostor), derives and prints the `ed25519:...` kms-identity pubkey.
+   Then deploy `compose/tmkms-alone/` manually (`docker compose up -d`).
+4. **Validator host**: fill `TMKMS_CHAIN_ID`, `TMKMS_LISTEN_ADDR`
+   (`tcp://0.0.0.0:26659`) and `TMKMS_ALLOWED_KMS_PUBKEYS` (the
+   `ed25519:...` printed in step 3 — **required** in TCP, empty = fail-open,
+   accepts any signer) in `compose/validator-alone/.env`. Open the firewall
+   to the signer host's IP only on port 26659 (`ufw_tmkms_port` +
+   `ufw_tmkms_signer_ip` in `base_setup.yml`'s `ufw` role — see
+   `roles/ufw/README.md`), start the validator.
 5. Verify the same way as §3 (stop/start the signer, watch the chain stall
    and resume).
 
-Full walkthrough with exact commands: `tmkms-lab/README.md`. TCP-specific
+Full manual reference walkthrough (useful to understand every step in
+isolation, or for a non-Ansible host): `tmkms-lab/README.md`. TCP-specific
 pitfalls (image tag drift, peer-id, allowlist): `.claude/tmkms-tcp-test-runbook.md`.
 
 ---
@@ -186,10 +209,15 @@ from the *same* `priv_validator_key.json` (e.g. after fixing a corrupted
 
 ```bash
 rm /root/<gno_dir>/tmkms/secrets/consensus.key
-ansible-playbook -i inventory.yaml 3-install-validator-node.yml \
-  -e target=gno-validator -e tmkms_enabled=true -e tmkms_chain_id=<chain_id> \
-  --tags tmkms
+ansible-playbook -i inventory.yaml setup-tmkms.yml \
+  -e target=gno-validator -e tmkms_chain_id=<chain_id>
 ```
+
+(add `-e tmkms_connection_mode=tcp -e tmkms_validator_peer_id=... -e
+tmkms_validator_ip=...` and target the signer host instead, for the TCP
+topology — but note step 2 in §4 must be redone too in that case: the
+signer host doesn't reslice locally, the fresh key must be copied there
+again from the validator host.)
 
 This re-derives the **same** key — it is not a true rotation. A genuine
 identity change (new pubkey) means generating a fresh
@@ -252,17 +280,25 @@ Cold (GLACIER-tier) archives need thawing first — see
 
 ---
 
-## 9. File map (same-host UDS deploy)
+## 9. File map
+
+### Same-host UDS deploy (`compose/validator-sentry-tmkms/`, validator host)
 
 ```
 /root/<gno_dir>/
-├── docker-compose.yml            # rendered from docker-validator[-standalone].yml.j2
-├── genesis.json, config.toml     # regenerable — keep for convenience, not secret
-├── gnoland-data/
-│   └── secrets/
-│       ├── node_key.json         # 🟠 back up (P2P identity)
-│       └── priv_validator_key.json  # deletable once tmkms confirmed + consensus.key backed up
-└── tmkms/
+├── docker-compose.yml            # static, compose/validator-sentry-tmkms/docker-compose.yml
+├── .env                          # IMAGES, MONIKER(_*), PERSISTENT_PEERS(_*), TMKMS_CHAIN_ID...
+├── sentry/
+│   ├── entrypoint.sh, config.toml, genesis.json   # pushed by hand — see DEPLOYMENT_RUNBOOK.md
+│   └── gnoland-data/
+├── validator/
+│   ├── entrypoint.sh, config.toml, genesis.json   # pushed by hand
+│   ├── otel/otel-config.yaml
+│   └── gnoland-data/
+│       └── secrets/
+│           ├── node_key.json         # 🟠 back up (P2P identity)
+│           └── priv_validator_key.json  # deletable once tmkms confirmed + consensus.key backed up
+└── tmkms/                         # staged by setup-tmkms.yml, NOT by hand
     ├── tmkms.toml                 # regenerable (rendered by the role)
     ├── run/                       # ephemeral socket dir — never back up
     └── secrets/
@@ -270,6 +306,23 @@ Cold (GLACIER-tier) archives need thawing first — see
         ├── consensus_state.json   # 🔴 back up — anti-double-sign gate
         └── kms-identity.key       # 🟡/🟠 back up — regenerable but convenient
 ```
+
+### Two-host TCP deploy — signer host (`compose/tmkms-alone/`)
+
+```
+/root/<gno_dir>/                   # gno_dir here is just a directory name —
+│                                  # no gnoland node runs on this host
+├── docker-compose.yml            # static, compose/tmkms-alone/docker-compose.yml
+├── tmkms.toml                     # regenerable (rendered by setup-tmkms.yml)
+├── kmsgen.go                      # pubkey derivation helper, staged by the role
+└── secrets/
+    ├── consensus.key              # 🔴 back up — THE validator key (copied in from the validator host, §4 step 2)
+    ├── consensus_state.json       # 🔴 back up — anti-double-sign gate
+    └── kms-identity.key           # 🟠 back up — TCP identity (= TMKMS_ALLOWED_KMS_PUBKEYS)
+```
+
+The validator host in this topology only needs `compose/validator-alone/`
+with `TMKMS_*` filled in — no `tmkms/` directory there at all.
 
 ## References
 

@@ -1,18 +1,18 @@
 ---
 # =============================================================================
-# Configuration du réseau VLAN privé (interface eno1.<vlan_id>)
+# Private VLAN network configuration (eno1.<vlan_id> interface)
 #
-# À lancer après que base_setup, install-sentry-node et install-validator-node
-# sont tous terminés et validés.
+# Run this after base_setup and the manual gnoland node deployment (see
+# DEPLOYMENT_RUNBOOK.md) are done and validated.
 #
 # Usage:
 #   ansible-playbook -i inventory.yaml setup-private-network.yml -e target=gno-sentry -e vlan_id=1938
 #   ansible-playbook -i inventory.yaml setup-private-network.yml -e target=gno-validator -e vlan_id=2772
 #
 # Variables:
-#   target    - hôte ou groupe d'inventaire à cibler (obligatoire)
-#   vlan_id   - identifiant VLAN pour l'interface privée (défaut: 1938)
-#   private_ip - adresse IP statique de l'interface VLAN (définie dans l'inventaire)
+#   target    - host or inventory group to target (required)
+#   vlan_id   - VLAN id for the private interface (default: 1938)
+#   private_ip - static IP address of the VLAN interface (defined in the inventory)
 # =============================================================================
 
 - name: Setup private VLAN network interface

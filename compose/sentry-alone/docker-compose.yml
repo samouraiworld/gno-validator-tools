@@ -1,0 +1,23 @@
+# sentry-alone — standalone public sentry (no co-located validator).
+# 100% configurable via .env (cp .env.example .env). See DEPLOYMENT_RUNBOOK.md
+# for the expected layout (entrypoint.sh, config.toml, genesis.json next to
+# this file) and the manual deployment procedure.
+
+services:
+  sentry:
+    image: "${IMAGES}"
+    restart: on-failure
+    ports:
+      - "26656:26656"
+      - "127.0.0.1:26657:26657"
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./config.toml:/gnoroot/config.toml:ro
+      - ./genesis.json:/gnoroot/gnoland-data/genesis.json:ro
+      - ./gnoland-data:/gnoroot/gnoland-data
+    entrypoint: /entrypoint.sh
+    environment:
+      MONIKER: "${MONIKER}"
+      SEEDS: "${SEEDS}"
+      PERSISTENT_PEERS: "${PERSISTENT_PEERS}"
+      PRIVATE_PEER_IDS: "${PRIVATE_PEER_IDS}" # validator's node_id (p2p_address)
