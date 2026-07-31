@@ -1149,24 +1149,8 @@ date -u +%s > "$LOCK_FILE"
 
 alert "restore-triggered" "${NODE_TYPE}: stuck detected, starting auto-heal restore."
 
-# --- 1. Incident backup (full gnoland-data, secrets included, forensic only) --
-TS="$(date -u +%Y%m%dT%H%M%SZ)"
-INCIDENT_ARCHIVE="$INCIDENT_DIR/${NODE_TYPE}-${TS}.tar.zst"
-echo "==> Incident backup: $DEPLOY_DIR/gnoland-data -> $INCIDENT_ARCHIVE"
-if ! tar -C "$DEPLOY_DIR" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"; then
-  alert "restore-failed" "${NODE_TYPE}: incident backup failed — aborting before touching data."
-  exit 1
-fi
-
-# --- 2. Pull the latest snapshot from Scaleway ---------------------------------
-echo "==> Pulling latest snapshot from Scaleway"
-if ! LATEST="$(./pull-from-s3.sh)"; then
-  alert "restore-failed" "${NODE_TYPE}: pull-from-s3.sh failed — aborting, node left untouched."
-  exit 1
-fi
-echo "==> Using snapshot: $LATEST"
-
-# --- 3. Validator-only local safety check (anti-double-sign) -------------------
+# --- 1. Stop the node for a consistent LevelDB copy (validator also stops tmkms,
+#        verified below as an anti-double-sign safety check) -------------------
 if [ "$NODE_TYPE" = "validator" ]; then
   echo "==> Stopping gnoland + tmkms"
   (cd "$DEPLOY_DIR" && docker compose stop "$SERVICE" tmkms >/dev/null 2>&1 || true)
@@ -1180,7 +1164,27 @@ if [ "$NODE_TYPE" = "validator" ]; then
       exit 1
     fi
   done
+else
+  echo "==> Stopping gnoland for a consistent LevelDB copy"
+  (cd "$DEPLOY_DIR" && docker compose stop "$SERVICE" >/dev/null 2>&1 || true)
 fi
+
+# --- 2. Incident backup (full gnoland-data, secrets included, forensic only) --
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+INCIDENT_ARCHIVE="$INCIDENT_DIR/${NODE_TYPE}-${TS}.tar.zst"
+echo "==> Incident backup: $DEPLOY_DIR/gnoland-data -> $INCIDENT_ARCHIVE"
+if ! tar -C "$DEPLOY_DIR" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"; then
+  alert "restore-failed" "${NODE_TYPE}: incident backup failed — aborting before touching data."
+  exit 1
+fi
+
+# --- 3. Pull the latest snapshot from Scaleway ---------------------------------
+echo "==> Pulling latest snapshot from Scaleway"
+if ! LATEST="$(./pull-from-s3.sh)"; then
+  alert "restore-failed" "${NODE_TYPE}: pull-from-s3.sh failed — aborting, node left untouched."
+  exit 1
+fi
+echo "==> Using snapshot: $LATEST"
 
 # --- 4. Restore (delegates to restore.sh --yes; it also restarts $SERVICE) -----
 echo "==> Restoring $DEPLOY_DIR from $LATEST"
