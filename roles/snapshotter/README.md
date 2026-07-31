@@ -19,7 +19,7 @@ validator (private, tmkms) ──VLAN──► sentry (public P2P)
                                                        push-to-s3.sh (rclone, STANDARD)
                                                ▼
                                         Scaleway Object Storage (private bucket)
-                                          lifecycle: STANDARD → GLACIER 7d → expire 90d
+                                          retention: KEEP_LAST=2 (script-pruned, no lifecycle tier)
 ```
 
 ## What it deploys (into `snapshotter_dir`, default `/root/{{ gno_dir }}-snapshotter`)
