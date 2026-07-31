@@ -433,19 +433,37 @@ case "$NODE" in
 esac
 
 echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
+# catching_up=false alone only proves replay caught up to the last known tip —
+# it does NOT prove the node is actually participating in LIVE consensus. A
+# node can sit at catching_up=false forever if it's wedged trying to sign a
+# height that's already committed locally but never finalizes (e.g. tmkms
+# refusing a stale in-flight round after a restore — see devnet
+# scenario-autoheal-validator notes). Require the height to advance by at
+# least one more block AFTER catching_up first flips to false, so a wedged
+# node times out and alerts instead of silently "succeeding".
 ELAPSED=0
+CAUGHT_UP_HEIGHT=""
 while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
-  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
-  if [ "$CATCHING_UP" = "false" ]; then
-    alert "restore-succeeded" "$NODE: restored from $LATEST and caught up."
-    rm -f "$LOCK_DIR/${NODE}.state"
-    exit 0
+  STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
+  CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
+  HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+  if [ "$CATCHING_UP" = "false" ] && [ -n "$HEIGHT" ]; then
+    if [ -n "$CAUGHT_UP_HEIGHT" ] && [ "$HEIGHT" -gt "$CAUGHT_UP_HEIGHT" ]; then
+      alert "restore-succeeded" "$NODE: restored from $LATEST, caught up and confirmed producing new blocks (height $CAUGHT_UP_HEIGHT -> $HEIGHT)."
+      rm -f "$LOCK_DIR/${NODE}.state"
+      exit 0
+    elif [ -z "$CAUGHT_UP_HEIGHT" ]; then
+      CAUGHT_UP_HEIGHT="$HEIGHT"
+      echo "==> catching_up=false at height $HEIGHT — waiting for one more block to confirm live progress (not just replay)"
+    fi
+  else
+    CAUGHT_UP_HEIGHT=""
   fi
   sleep 10
   ELAPSED=$((ELAPSED + 10))
 done
 
-alert "restore-timeout" "$NODE: restored from $LATEST but did not catch up within ${CATCHUP_TIMEOUT}s — needs investigation."
+alert "restore-timeout" "$NODE: restored from $LATEST but did not confirm live progress within ${CATCHUP_TIMEOUT}s (stuck at height ${CAUGHT_UP_HEIGHT:-unknown} after catch-up) — needs investigation."
 exit 1
 ```
 
@@ -538,22 +556,26 @@ scenario-autoheal-follower: up-validator4
 	docker compose start validator2 validator3
 	@echo "==> Watch validator4 catch up to the resumed chain: make status"
 
+# Deliberately does NOT halt the network (unlike scenario-autoheal-follower):
+# the real incident this protects against is a single validator falling
+# behind while the rest of the network stays healthy — confirmed against a
+# real production restore that needed no consensus_state changes at all.
+# Halting the whole network first would test a DIFFERENT, narrower incident
+# shape (restoring a validator while consensus is still halted network-wide)
+# that carries a known tmkms deadlock risk — see the "known limitation" note
+# in SNAPSHOT-RESTORE.md, not something this scenario is meant to exercise.
+# Detection itself (check-stuck.sh) is already proven by
+# scenario-autoheal-follower; this one forces the restore directly so it can
+# focus on the validator-specific restart/rejoin/live-signing path.
 scenario-autoheal-validator:
-	@echo "==> Halting the chain (stop validator2+validator3)"
-	docker compose stop validator2 validator3
-	@echo "==> Waiting for validator's height to freeze..."
-	sleep 20
-	@echo "==> Running check-stuck.sh 3x against the tmkms validator"
-	./check-stuck.sh validator || true
-	sleep 5
-	./check-stuck.sh validator || true
-	sleep 5
-	./check-stuck.sh validator
-	@echo "==> Check tmkms did not refuse to sign (no 'double sign' in logs):"
-	docker compose logs tmkms --tail 50 | grep -i "sign" || echo "(no sign-related log lines yet)"
-	@echo "==> Resuming the chain:"
-	docker compose start validator2 validator3
-	@echo "==> Watch validator resume signing: make status; docker compose logs -f tmkms"
+	@echo "==> Network stays healthy (validator2/3/4 keep producing blocks) — forcing an auto-heal restore on the tmkms validator directly"
+	./autoheal.sh validator
+	@echo "==> Confirm the validator resumed LIVE signing (no 'double sign' refusal in tmkms logs):"
+	sleep 15
+	docker compose logs tmkms --tail 30 | grep -i "sign" || echo "(no sign-related log lines yet)"
+	@echo "==> Confirm validator is live and in sync with the rest of the network:"
+	curl -s http://localhost:26658/status | jq -r '.result.sync_info'
+	$(MAKE) status
 
 scenario-autoheal-no-snapshot:
 	@echo "==> Temporarily hiding snapshots/ to force a no-snapshot failure"
@@ -638,6 +660,23 @@ for catch-up. A lock file (`.autoheal/<node>.lock`) enforces a 30 min cooldown
 between automatic restores.
 
 Manual trigger (bypasses detection): `make autoheal NODE=<svc>`.
+
+**Known limitation — validator restore during a whole-network halt.**
+Auto-heal is safe for its main target (a single validator lagging behind a
+*healthy, progressing* network — restoring chain data while leaving tmkms's
+`consensus_state.json` untouched never conflicts with a live round that's
+already well past whatever tmkms remembers). It is NOT safe if the entire
+network has halted (lost quorum) and the validator is restored *while still
+frozen mid-round*: on resume it can rejoin at the exact same in-flight
+height/round tmkms already partially signed, which tmkms correctly refuses
+as a step regression — a refusal that can permanently deadlock that
+validator (and the network, if its power is needed for quorum). The
+catch-up verification loop times out and alerts if this happens (it
+requires the height to advance past the post-restore tip, not just
+`catching_up=false`), so it won't be silent — but recovery is manual. Real
+fix (deliberately advancing tmkms's state) touches double-sign protection
+directly and is out of scope here; do not trigger auto-heal on a validator
+while the wider network is known to be down.
 
 See `make scenario-autoheal-follower` / `scenario-autoheal-validator` /
 `scenario-autoheal-no-snapshot` / `scenario-autoheal-cooldown` for the test
@@ -1154,19 +1193,37 @@ fi
 
 # --- 6. Verify catch-up ----------------------------------------------------------
 echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
+# catching_up=false alone only proves replay caught up to the last known tip —
+# it does NOT prove the node is actually participating in LIVE consensus. A
+# node can sit at catching_up=false forever if it's wedged trying to sign a
+# height that's already committed locally but never finalizes (e.g. tmkms
+# refusing a stale in-flight round after a restore — see roles/autoheal
+# README's "known limitation" note). Require the height to advance by at
+# least one more block AFTER catching_up first flips to false, so a wedged
+# node times out and alerts instead of silently "succeeding".
 ELAPSED=0
+CAUGHT_UP_HEIGHT=""
 while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
-  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
-  if [ "$CATCHING_UP" = "false" ]; then
-    alert "restore-succeeded" "${NODE_TYPE}: restored from $LATEST and caught up."
-    rm -f "$STATE_DIR/${NODE_TYPE}.state"
-    exit 0
+  STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
+  CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
+  HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+  if [ "$CATCHING_UP" = "false" ] && [ -n "$HEIGHT" ]; then
+    if [ -n "$CAUGHT_UP_HEIGHT" ] && [ "$HEIGHT" -gt "$CAUGHT_UP_HEIGHT" ]; then
+      alert "restore-succeeded" "${NODE_TYPE}: restored from $LATEST, caught up and confirmed producing new blocks (height $CAUGHT_UP_HEIGHT -> $HEIGHT)."
+      rm -f "$STATE_DIR/${NODE_TYPE}.state"
+      exit 0
+    elif [ -z "$CAUGHT_UP_HEIGHT" ]; then
+      CAUGHT_UP_HEIGHT="$HEIGHT"
+      echo "==> catching_up=false at height $HEIGHT — waiting for one more block to confirm live progress (not just replay)"
+    fi
+  else
+    CAUGHT_UP_HEIGHT=""
   fi
   sleep 10
   ELAPSED=$((ELAPSED + 10))
 done
 
-alert "restore-timeout" "${NODE_TYPE}: restored from $LATEST but did not catch up within ${CATCHUP_TIMEOUT}s — needs investigation."
+alert "restore-timeout" "${NODE_TYPE}: restored from $LATEST but did not confirm live progress within ${CATCHUP_TIMEOUT}s (stuck at height ${CAUGHT_UP_HEIGHT:-unknown} after catch-up) — needs investigation."
 exit 1
 ```
 
@@ -1479,9 +1536,27 @@ not a data restore.
 The archive restored is chain data only (`gnoland-data/db`) — it never
 touches `node_key`, tmkms's `consensus.key`, `kms-identity.key` or
 `consensus_state.json` (the double-sign HRS gate). Before wiping anything,
-`autoheal.sh` stops `validator`+`tmkms` and verifies via `docker compose ps`
+`autoheal.sh` stops `validator`+`tmkms` and verifies via `docker compose ps -a`
 that both are `exited`; if either isn't, it aborts and alerts instead of
 touching data.
+
+**Known limitation — validator restore during a whole-network halt.**
+Auto-heal is safe for its main target: a single validator lagging behind a
+*healthy, progressing* network. Restoring chain data while leaving tmkms's
+`consensus_state.json` untouched never conflicts with a live round that's
+already well past whatever tmkms remembers — this is the common case and
+needs no special handling. It is NOT safe if the entire network has halted
+(lost quorum) and the validator is restored *while still frozen mid-round*:
+on resume it can rejoin at the exact same in-flight height/round tmkms
+already partially signed, which tmkms correctly refuses as a step
+regression — a refusal that can permanently deadlock that validator (and
+the network, if its power is needed for quorum). `autoheal.sh`'s catch-up
+verification requires the height to advance past the post-restore tip (not
+just `catching_up=false`), so this failure mode times out and alerts rather
+than going silent — but recovery from it is manual. A real fix (deliberately
+advancing tmkms's state) touches double-sign protection directly and is out
+of scope for this role; operators should not trigger auto-heal on a
+validator while the wider network is known to be down.
 
 ## Deploy
 
