@@ -59,7 +59,10 @@ alert "restore-triggered" "$NODE: stuck detected, starting auto-heal restore."
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 INCIDENT_ARCHIVE="$INCIDENT_DIR/${NODE}-${TS}.tar.zst"
 echo "==> Incident backup: $DATA_DIR -> $INCIDENT_ARCHIVE"
-tar -C "$NODE" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"
+if ! tar -C "$NODE" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"; then
+  alert "restore-failed" "$NODE: incident backup failed — aborting before touching data."
+  exit 1
+fi
 
 # --- 2. Pick the latest local snapshot (highest block height) ---------------
 # List bare filenames from inside SNAP_DIR (not ls "$SNAP_DIR"/*.tar.zst, which
@@ -83,7 +86,10 @@ if [ "$NODE" = "validator" ]; then
   echo "==> Stopping validator + tmkms"
   compose stop validator tmkms >/dev/null 2>&1 || true
   for svc in validator tmkms; do
-    STATE="$(compose ps --format '{{.State}}' "$svc" 2>/dev/null || echo missing)"
+    # -a is required: a plain 'compose ps' only lists RUNNING containers, so a
+    # cleanly-stopped (exited) container would otherwise report empty state,
+    # not "exited" — making this check fail-closed on every clean stop.
+    STATE="$(compose ps -a --format '{{.State}}' "$svc" 2>/dev/null || echo missing)"
     if [ "$STATE" != "exited" ] && [ "$STATE" != "missing" ]; then
       alert "restore-aborted" "$NODE: $svc did not stop cleanly (state=$STATE) — refusing to wipe data, possible live signer. Manual intervention required."
       exit 1
@@ -102,7 +108,10 @@ fi
 if [ "$NODE" = "validator" ]; then
   echo "==> restore.sh already started $NODE; starting tmkms now"
   sleep 5
-  compose start tmkms >/dev/null
+  if ! compose start tmkms >/dev/null; then
+    alert "restore-failed" "$NODE: tmkms failed to start after restore — validator is up WITHOUT a signer attached. Manual intervention required."
+    exit 1
+  fi
 fi
 
 # --- 6. Verify catch-up -------------------------------------------------------
