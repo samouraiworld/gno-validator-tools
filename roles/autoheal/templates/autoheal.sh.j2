@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Rendered by roles/autoheal. Orchestrates a full auto-heal restore of this
+# node ({{ autoheal_node_type }}): incident backup, pull the latest snapshot
+# from Scaleway, restore, restart (tmkms-aware ordering for the validator),
+# verify catch-up. Invoked by check-stuck.sh once the node has been confirmed
+# stuck for {{ autoheal_stuck_threshold }} consecutive checks.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+NODE_TYPE="{{ autoheal_node_type }}"
+DEPLOY_DIR="{{ autoheal_deploy_dir }}"
+SERVICE="{{ autoheal_compose_service }}"
+RPC="http://{{ autoheal_rpc_bind }}"
+STATE_DIR="{{ autoheal_state_dir }}"
+LOCK_FILE="$STATE_DIR/${NODE_TYPE}.lock"
+COOLDOWN="{{ autoheal_cooldown_seconds }}"
+CATCHUP_TIMEOUT="{{ autoheal_catchup_timeout_seconds }}"
+INCIDENT_DIR="$STATE_DIR/incidents"
+
+[ -f .env ] && set -a && . ./.env && set +a
+
+mkdir -p "$STATE_DIR" "$INCIDENT_DIR"
+
+alert() {
+  local event="$1" message="$2"
+  echo "[ALERT] $event: $message"
+  if [ -n "${WEBHOOK_URL:-}" ]; then
+    curl -s --max-time 5 -X POST "$WEBHOOK_URL" \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg n "$NODE_TYPE" --arg e "$event" --arg m "$message" \
+            '{node:$n, event:$e, message:$m}')" >/dev/null 2>&1 || true
+  fi
+}
+
+# --- Anti-flapping ------------------------------------------------------------
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_TS="$(cat "$LOCK_FILE" 2>/dev/null || echo 0)"
+  ELAPSED=$(( $(date -u +%s) - LOCK_TS ))
+  if [ "$ELAPSED" -lt "$COOLDOWN" ]; then
+    alert "cooldown-blocked" "${NODE_TYPE}: a restore already ran ${ELAPSED}s ago (cooldown ${COOLDOWN}s) — refusing to run again. Needs human investigation."
+    exit 1
+  fi
+fi
+date -u +%s > "$LOCK_FILE"
+
+alert "restore-triggered" "${NODE_TYPE}: stuck detected, starting auto-heal restore."
+
+# --- 1. Incident backup (full gnoland-data, secrets included, forensic only) --
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+INCIDENT_ARCHIVE="$INCIDENT_DIR/${NODE_TYPE}-${TS}.tar.zst"
+echo "==> Incident backup: $DEPLOY_DIR/gnoland-data -> $INCIDENT_ARCHIVE"
+if ! tar -C "$DEPLOY_DIR" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"; then
+  alert "restore-failed" "${NODE_TYPE}: incident backup failed — aborting before touching data."
+  exit 1
+fi
+
+# --- 2. Pull the latest snapshot from Scaleway ---------------------------------
+echo "==> Pulling latest snapshot from Scaleway"
+if ! LATEST="$(./pull-from-s3.sh)"; then
+  alert "restore-failed" "${NODE_TYPE}: pull-from-s3.sh failed — aborting, node left untouched."
+  exit 1
+fi
+echo "==> Using snapshot: $LATEST"
+
+# --- 3. Validator-only local safety check (anti-double-sign) -------------------
+if [ "$NODE_TYPE" = "validator" ]; then
+  echo "==> Stopping gnoland + tmkms"
+  (cd "$DEPLOY_DIR" && docker compose stop "$SERVICE" tmkms >/dev/null 2>&1 || true)
+  for svc in "$SERVICE" tmkms; do
+    # -a is required: a plain 'compose ps' only lists RUNNING containers, so a
+    # cleanly-stopped (exited) container would otherwise report empty state,
+    # not "exited" — making this check fail-closed on every clean stop.
+    STATE="$(cd "$DEPLOY_DIR" && docker compose ps -a --format '{% raw %}{{.State}}{% endraw %}' "$svc" 2>/dev/null || echo missing)"
+    if [ "$STATE" != "exited" ] && [ "$STATE" != "missing" ]; then
+      alert "restore-aborted" "${NODE_TYPE}: $svc did not stop cleanly (state=$STATE) — refusing to wipe data, possible live signer. Manual intervention required."
+      exit 1
+    fi
+  done
+fi
+
+# --- 4. Restore (delegates to restore.sh --yes; it also restarts $SERVICE) -----
+echo "==> Restoring $DEPLOY_DIR from $LATEST"
+if ! ./restore.sh "$DEPLOY_DIR" "$LATEST" "$SERVICE" --yes; then
+  alert "restore-failed" "${NODE_TYPE}: restore.sh failed — see logs."
+  exit 1
+fi
+
+# --- 5. Validator only: start tmkms too (restore.sh only starts $SERVICE) ------
+if [ "$NODE_TYPE" = "validator" ]; then
+  echo "==> restore.sh already started $SERVICE; starting tmkms now"
+  sleep 5
+  if ! (cd "$DEPLOY_DIR" && docker compose start tmkms >/dev/null); then
+    alert "restore-failed" "${NODE_TYPE}: tmkms failed to start after restore — validator is up WITHOUT a signer attached. Manual intervention required."
+    exit 1
+  fi
+fi
+
+# --- 6. Verify catch-up ----------------------------------------------------------
+echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
+# catching_up=false alone only proves replay caught up to the last known tip —
+# it does NOT prove the node is actually participating in LIVE consensus. A
+# node can sit at catching_up=false forever if it's wedged trying to sign a
+# height that's already committed locally but never finalizes (e.g. tmkms
+# refusing a stale in-flight round after a restore — see roles/autoheal
+# README's "known limitation" note). Require the height to advance by at
+# least one more block AFTER catching_up first flips to false, so a wedged
+# node times out and alerts instead of silently "succeeding".
+ELAPSED=0
+CAUGHT_UP_HEIGHT=""
+while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
+  STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
+  CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
+  HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+  if [ "$CATCHING_UP" = "false" ] && [ -n "$HEIGHT" ]; then
+    if [ -n "$CAUGHT_UP_HEIGHT" ] && [ "$HEIGHT" -gt "$CAUGHT_UP_HEIGHT" ]; then
+      alert "restore-succeeded" "${NODE_TYPE}: restored from $LATEST, caught up and confirmed producing new blocks (height $CAUGHT_UP_HEIGHT -> $HEIGHT)."
+      rm -f "$STATE_DIR/${NODE_TYPE}.state"
+      exit 0
+    elif [ -z "$CAUGHT_UP_HEIGHT" ]; then
+      CAUGHT_UP_HEIGHT="$HEIGHT"
+      echo "==> catching_up=false at height $HEIGHT — waiting for one more block to confirm live progress (not just replay)"
+    fi
+  else
+    CAUGHT_UP_HEIGHT=""
+  fi
+  sleep 10
+  ELAPSED=$((ELAPSED + 10))
+done
+
+alert "restore-timeout" "${NODE_TYPE}: restored from $LATEST but did not confirm live progress within ${CATCHUP_TIMEOUT}s (stuck at height ${CAUGHT_UP_HEIGHT:-unknown} after catch-up) — needs investigation."
+exit 1
