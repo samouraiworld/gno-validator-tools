@@ -87,10 +87,9 @@ systemctl list-timers gno-snapshot.timer
 
 1. Create a **private bucket** (name + region, e.g. `fr-par`).
 2. Create an **API key** (Access/Secret) in IAM → put in `.env`.
-3. Add a **lifecycle rule** on the bucket (console → Lifecycle):
-   - transition `STANDARD → GLACIER` after **7 days** (cheap cold archive),
-   - expiration (delete) after **90 days** (retention cap).
-   Recent snapshots stay STANDARD = instant restore; old ones go cold.
+3. No bucket lifecycle rule needed: `push-to-s3.sh` prunes the remote itself
+   after each push, keeping only the `KEEP_LAST` (default 2, see `.env`)
+   snapshots with the highest block height.
 
 ## Restore
 
@@ -105,9 +104,10 @@ rclone copy scw:$S3_BUCKET/$S3_PREFIX/<height>-<ts>.tar.zst ./snapshots/
 ./restore.sh /root/<gno_dir>-snapshotter ./snapshots/<file>.tar.zst snapshotter
 ```
 
-- **Cold archive (GLACIER):** a `GLACIER`-class object must be **restored/thawed**
-  first (several hours) before it can be downloaded. Only recent (STANDARD)
-  snapshots restore immediately — this drives your RTO on older restore points.
+- **Retention:** only the latest `KEEP_LAST` archives (default 2) exist
+  remotely — `push-to-s3.sh` deletes older ones after each push. Every
+  remaining archive stays in STANDARD storage, so restore is always
+  immediate; there is no cold-storage tier to thaw.
 - **Validator DR:** restore chain data from the snapshot **plus** the validator's
   own consensus key + double-sign state from your **out-of-band, encrypted** key
   backup (never in the snapshot). `restore.sh validator` prints the tmkms
