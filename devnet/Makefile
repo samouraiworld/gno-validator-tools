@@ -26,7 +26,7 @@ DEV_CHAIN    := dev
 .PHONY: help up up-validator4 up-snapshotter ensure-bootstrap down reinit regen-genesis full-reinit clean-db clean-all status logs \
         stop-val1 stop-val2 stop-val3 stop-val4 \
         start-val1 start-val2 start-val3 start-val4 \
-        check-stuck snapshot snapshots restore-fullnode restore-validator \
+        check-stuck autoheal snapshot snapshots restore-fullnode restore-validator \
         scenario1 scenario2 scenario2-restart scenario3 scenario3-restart \
         scenario4 scenario4-restart scenario5 scenario-mute
 
@@ -168,6 +168,9 @@ start-val4:
 
 check-stuck: ## make check-stuck NODE=validator2
 	./check-stuck.sh $(NODE)
+
+autoheal: ## make autoheal NODE=validator2  (manual trigger, bypasses detection)
+	./autoheal.sh $(NODE)
 
 # Capture a chain snapshot from the snapshotter node (db only, wal excluded),
 # then rotate to the RETENTION most recent. Override retention: RETENTION=48 make snapshot
