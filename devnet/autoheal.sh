@@ -125,17 +125,35 @@ case "$NODE" in
 esac
 
 echo "==> Waiting for catch-up (timeout ${CATCHUP_TIMEOUT}s)"
+# catching_up=false alone only proves replay caught up to the last known tip —
+# it does NOT prove the node is actually participating in LIVE consensus. A
+# node can sit at catching_up=false forever if it's wedged trying to sign a
+# height that's already committed locally but never finalizes (e.g. tmkms
+# refusing a stale in-flight round after a restore — see devnet
+# scenario-autoheal-validator notes). Require the height to advance by at
+# least one more block AFTER catching_up first flips to false, so a wedged
+# node times out and alerts instead of silently "succeeding".
 ELAPSED=0
+CAUGHT_UP_HEIGHT=""
 while [ "$ELAPSED" -lt "$CATCHUP_TIMEOUT" ]; do
-  CATCHING_UP="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
-  if [ "$CATCHING_UP" = "false" ]; then
-    alert "restore-succeeded" "$NODE: restored from $LATEST and caught up."
-    rm -f "$LOCK_DIR/${NODE}.state"
-    exit 0
+  STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
+  CATCHING_UP="$(echo "$STATUS" | jq -r '.result.sync_info.catching_up | tostring' 2>/dev/null || true)"
+  HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+  if [ "$CATCHING_UP" = "false" ] && [ -n "$HEIGHT" ]; then
+    if [ -n "$CAUGHT_UP_HEIGHT" ] && [ "$HEIGHT" -gt "$CAUGHT_UP_HEIGHT" ]; then
+      alert "restore-succeeded" "$NODE: restored from $LATEST, caught up and confirmed producing new blocks (height $CAUGHT_UP_HEIGHT -> $HEIGHT)."
+      rm -f "$LOCK_DIR/${NODE}.state"
+      exit 0
+    elif [ -z "$CAUGHT_UP_HEIGHT" ]; then
+      CAUGHT_UP_HEIGHT="$HEIGHT"
+      echo "==> catching_up=false at height $HEIGHT — waiting for one more block to confirm live progress (not just replay)"
+    fi
+  else
+    CAUGHT_UP_HEIGHT=""
   fi
   sleep 10
   ELAPSED=$((ELAPSED + 10))
 done
 
-alert "restore-timeout" "$NODE: restored from $LATEST but did not catch up within ${CATCHUP_TIMEOUT}s — needs investigation."
+alert "restore-timeout" "$NODE: restored from $LATEST but did not confirm live progress within ${CATCHUP_TIMEOUT}s (stuck at height ${CAUGHT_UP_HEIGHT:-unknown} after catch-up) — needs investigation."
 exit 1
