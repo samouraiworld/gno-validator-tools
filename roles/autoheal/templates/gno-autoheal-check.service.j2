@@ -1,0 +1,12 @@
+# Rendered by roles/autoheal. Oneshot: run one stuck-detection check (and,
+# if the node is confirmed stuck, the auto-heal restore it triggers).
+# Triggered by gno-autoheal-check.timer.
+[Unit]
+Description=Check if the {{ autoheal_node_type }} node is stuck and auto-heal it
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ autoheal_deploy_dir }}
+ExecStart={{ autoheal_deploy_dir }}/check-stuck.sh
