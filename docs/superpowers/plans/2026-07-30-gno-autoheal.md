@@ -541,32 +541,32 @@ In `devnet/Makefile`, add to `.PHONY`:
 # restart pipeline runs correctly; it can't "fix" a network-wide halt (no
 # client-side restore can) — scenario3-restart below proves the restored node
 # then rejoins cleanly once the network resumes.
+# Neither this scenario nor scenario-autoheal-validator halts the network:
+# the real incident auto-heal protects against is a single node falling
+# behind/crashing while the rest of the network stays healthy — confirmed
+# against a real production restore that needed no consensus_state changes
+# at all. Stopping validator4 here makes its RPC unreachable, which
+# check-stuck.sh correctly treats as DOWN (not "stuck") and never
+# auto-triggers on — so this scenario forces autoheal.sh directly rather
+# than going through detection. Known limitation: no scenario in this
+# devnet suite live-exercises check-stuck.sh's actual stuck-counter/
+# threshold logic end-to-end (it's covered by code review only, see Task 1)
+# — simulating "RPC alive but height frozen" for a single node isn't
+# practical with the primitives available here.
 scenario-autoheal-follower: up-validator4
-	@echo "==> Halting the chain (stop validator2+validator3)"
-	docker compose stop validator2 validator3
-	@echo "==> Waiting for validator4's height to freeze..."
-	sleep 20
-	@echo "==> Running check-stuck.sh 3x (STUCK_THRESHOLD=3 default)"
-	./check-stuck.sh validator4 || true
-	sleep 5
-	./check-stuck.sh validator4 || true
-	sleep 5
-	./check-stuck.sh validator4
-	@echo "==> autoheal should have fired above. Resuming the chain:"
-	docker compose start validator2 validator3
-	@echo "==> Watch validator4 catch up to the resumed chain: make status"
+	@echo "==> Stopping validator4 (simulating a crashed/down follower node)"
+	docker compose stop validator4
+	@echo "==> Network stays healthy (validator/validator2/validator3 keep producing blocks)"
+	@echo "==> Forcing an auto-heal restore on validator4 directly"
+	./autoheal.sh validator4
+	@echo "==> Confirm validator4 caught up and is producing new blocks with the rest of the network:"
+	curl -s http://localhost:26661/status | jq -r '.result.sync_info'
+	$(MAKE) status
 
-# Deliberately does NOT halt the network (unlike scenario-autoheal-follower):
-# the real incident this protects against is a single validator falling
-# behind while the rest of the network stays healthy — confirmed against a
-# real production restore that needed no consensus_state changes at all.
-# Halting the whole network first would test a DIFFERENT, narrower incident
-# shape (restoring a validator while consensus is still halted network-wide)
-# that carries a known tmkms deadlock risk — see the "known limitation" note
-# in SNAPSHOT-RESTORE.md, not something this scenario is meant to exercise.
-# Detection itself (check-stuck.sh) is already proven by
-# scenario-autoheal-follower; this one forces the restore directly so it can
-# focus on the validator-specific restart/rejoin/live-signing path.
+# See the comment on scenario-autoheal-follower above: same rationale,
+# applied to the tmkms-signing validator instead of a plain follower. This
+# is the scenario that matters most for anti-double-sign confidence — it
+# forces the validator-specific restart/rejoin/live-signing path directly.
 scenario-autoheal-validator:
 	@echo "==> Network stays healthy (validator2/3/4 keep producing blocks) — forcing an auto-heal restore on the tmkms validator directly"
 	./autoheal.sh validator
@@ -601,7 +601,7 @@ In the `help:` target, under "Snapshots & restore", add:
 	@echo "  make autoheal NODE=<svc>      - manually trigger the auto-heal restore on <svc>"
 	@echo ""
 	@echo "Auto-heal scenarios:"
-	@echo "  make scenario-autoheal-follower  - halt chain, detect+restore validator4, resume"
+	@echo "  make scenario-autoheal-follower  - stop validator4, force-restore it, network stays healthy"
 	@echo "  make scenario-autoheal-validator - halt chain, detect+restore validator (tmkms), resume"
 	@echo "  make scenario-autoheal-no-snapshot - autoheal aborts cleanly with no snapshot available"
 	@echo "  make scenario-autoheal-cooldown  - second auto-heal within cooldown is blocked"
