@@ -27,6 +27,7 @@ autoheal_stuck_threshold: 3
 autoheal_check_interval: "*:0/3"          # systemd OnCalendar: every 3 min
 autoheal_cooldown_seconds: 1800           # 30 min
 autoheal_catchup_timeout_seconds: 1200    # 20 min
+autoheal_incident_keep_last: 3            # local incident archives kept (rotation)
 
 autoheal_chain_id: ""
 
