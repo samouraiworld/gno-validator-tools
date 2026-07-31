@@ -55,7 +55,7 @@ help:
 	@echo ""
 	@echo "Auto-heal scenarios:"
 	@echo "  make scenario-autoheal-follower  - stop validator4, force-restore it, network stays healthy"
-	@echo "  make scenario-autoheal-validator - halt chain, detect+restore validator (tmkms), resume"
+	@echo "  make scenario-autoheal-validator - force auto-heal restore of the tmkms validator, network stays healthy"
 	@echo "  make scenario-autoheal-no-snapshot - autoheal aborts cleanly with no snapshot available"
 	@echo "  make scenario-autoheal-cooldown  - second auto-heal within cooldown is blocked"
 	@echo ""
@@ -348,12 +348,6 @@ scenario-mute:
 	@echo "  docker logs gnomonitoring-backend | grep 'dedup: skipping'"
 	@echo "Restart with: make scenario2-restart"
 
-# Halts the chain (stop validator2+validator3, same as scenario3) so a still-
-# running node's height freezes with catching_up=false — the exact condition
-# check-stuck.sh looks for. This proves the detect -> backup -> restore ->
-# restart pipeline runs correctly; it can't "fix" a network-wide halt (no
-# client-side restore can) — scenario3-restart below proves the restored node
-# then rejoins cleanly once the network resumes.
 # Neither this scenario nor scenario-autoheal-validator halts the network:
 # the real incident auto-heal protects against is a single node falling
 # behind/crashing while the rest of the network stays healthy — confirmed

@@ -13,14 +13,19 @@ gno-autoheal-check.timer (every 3 min, OnCalendar)
         │
         ▼
 check-stuck.sh   — reads /status, tracks consecutive stuck samples in
-                    {{ autoheal_state_dir }}/<node_type>.state
+                    /var/lib/gno-autoheal/<node_type>.state
         │ after autoheal_stuck_threshold (default 3) consecutive hits
         ▼
-autoheal.sh      — lock+cooldown (default 30 min) → incident backup →
-                    pull-from-s3.sh → [validator only: verify gnoland+tmkms
-                    exited] → restore.sh --yes → restart (tmkms after
-                    gnoland) → poll for catch-up (default 20 min timeout)
+autoheal.sh      — lock+cooldown (default 30 min) → pull-from-s3.sh → stop
+                    node (+tmkms, verify exited for the validator) →
+                    incident backup (+ local prune, keep 3) → [validator:
+                    re-verify exited] → restore.sh --yes → restart (tmkms
+                    after gnoland) → poll for catch-up (20 min timeout)
 ```
+
+The snapshot pull comes first on purpose: it is read-only, so a failed pull
+(expired S3 key, network blip) aborts with the node still running and
+untouched, instead of leaving it stopped with no restore.
 
 A node whose RPC is unreachable is treated as DOWN, not stuck, and never
 triggers an auto-restore — a container that won't start needs investigation,
@@ -81,5 +86,13 @@ pushes to.
 ```bash
 ./check-stuck.sh          # one detection pass (safe, read-only)
 ./autoheal.sh              # force a restore now, bypassing detection
-ls {{ autoheal_state_dir }}/incidents/   # pre-restore backups (forensic; not uploaded anywhere)
+ls /var/lib/gno-autoheal/incidents/   # pre-restore backups (forensic; not uploaded anywhere)
 ```
+
+Only the newest `autoheal_incident_keep_last` (default 3) archives are kept;
+older ones are pruned automatically after each successful incident backup.
+
+> **Warning — these archives contain secrets.** An incident archive is a full
+> copy of `gnoland-data`, including `secrets/priv_validator_key.json`. Never
+> copy one off-box unencrypted, and never point a log/backup shipping job
+> (e.g. a `backup-logs.yaml`-style SCP job) at the auto-heal state directory.
