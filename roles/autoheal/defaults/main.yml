@@ -1,0 +1,42 @@
+---
+# defaults file for roles/autoheal
+# Deploys stuck-node detection + auto-restore on a node this role is applied
+# to (sentry OR validator — set autoheal_node_type per host in inventory).
+# Snapshots are always pulled from Scaleway (roles/snapshotter's push target),
+# even on the sentry host that has a local snapshotter co-located: one code
+# path, one thing to test, negligible freshness cost (one push cycle).
+
+autoheal_enabled: false
+
+# "sentry" or "validator" — set per host (host_vars / group_vars), never here.
+autoheal_node_type: ""
+
+# The node's OWN deploy dir (its docker-compose.yml lives here) — e.g.
+# /root/gno-node for the sentry, /root/gno-node for the validator (same
+# gno_dir convention, different host).
+autoheal_deploy_dir: "/root/{{ gno_dir }}"
+
+# The compose service name for the node itself. tmkms (when node_type is
+# validator) is always literally "tmkms" — see docker-compose templates.
+autoheal_compose_service: "{{ 'sentry' if autoheal_node_type == 'sentry' else 'validator' }}"
+
+autoheal_rpc_bind: "127.0.0.1:26657"
+
+autoheal_state_dir: "/var/lib/gno-autoheal"
+autoheal_stuck_threshold: 3
+autoheal_check_interval: "*:0/3"          # systemd OnCalendar: every 3 min
+autoheal_cooldown_seconds: 1800           # 30 min
+autoheal_catchup_timeout_seconds: 1200    # 20 min
+
+autoheal_chain_id: ""
+
+# --- Scaleway Object Storage (rclone, READ-ONLY pull) ---------------------
+# MUST match the sentry's roles/snapshotter variables (snapshotter_s3_bucket /
+# snapshotter_s3_prefix) — both node types pull from the SAME bucket/prefix,
+# the one the sentry's push-to-s3.sh writes to. Credentials go in .env on the
+# host (SCW_ACCESS_KEY/SCW_SECRET_KEY) — a read-only Scaleway API key is
+# recommended, especially on the validator host.
+autoheal_s3_bucket: ""
+autoheal_s3_endpoint: "s3.fr-par.scw.cloud"
+autoheal_s3_region: "fr-par"
+autoheal_s3_prefix: ""
