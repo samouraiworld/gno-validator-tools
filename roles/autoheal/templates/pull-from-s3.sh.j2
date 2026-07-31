@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Rendered by roles/autoheal. Download the most recent chain snapshot (highest
+# block height) from Scaleway Object Storage into ./snapshots/. Read-only:
+# never deletes or uploads anything (pruning is push-to-s3.sh's job, on the
+# sentry host that produces the snapshots). Prints ONLY the downloaded file's
+# absolute path on stdout; everything else goes to stderr.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+if [ ! -f .env ]; then
+  echo "❌ .env missing — copy autoheal.env.example to .env and fill it in." >&2
+  exit 1
+fi
+set -a
+. ./.env
+set +a
+
+: "${SCW_ACCESS_KEY:?set SCW_ACCESS_KEY in .env}"
+: "${SCW_SECRET_KEY:?set SCW_SECRET_KEY in .env}"
+: "${S3_BUCKET:?set S3_BUCKET in .env}"
+: "${S3_ENDPOINT:?set S3_ENDPOINT in .env}"
+: "${S3_REGION:?set S3_REGION in .env}"
+: "${S3_PREFIX:?set S3_PREFIX in .env (must match the sentry's snapshotter_s3_prefix)}"
+
+export RCLONE_CONFIG_SCW_TYPE="s3"
+export RCLONE_CONFIG_SCW_PROVIDER="aws"
+export RCLONE_CONFIG_SCW_ACCESS_KEY_ID="$SCW_ACCESS_KEY"
+export RCLONE_CONFIG_SCW_SECRET_ACCESS_KEY="$SCW_SECRET_KEY"
+export RCLONE_CONFIG_SCW_ENDPOINT="$S3_ENDPOINT"
+export RCLONE_CONFIG_SCW_REGION="$S3_REGION"
+
+SRC="scw:${S3_BUCKET}/${S3_PREFIX}"
+mkdir -p snapshots
+
+echo "==> Listing $SRC" >&2
+LATEST="$(rclone lsf "$SRC" --files-only --include '*.tar.zst' | sort -t '-' -k1,1n | tail -n1)"
+if [ -z "$LATEST" ]; then
+  echo "❌ no snapshot found at $SRC" >&2
+  exit 1
+fi
+
+echo "==> Downloading $LATEST" >&2
+rclone copy "$SRC/$LATEST" snapshots/ --s3-chunk-size 64M --stats-one-line >&2
+
+echo "$PWD/snapshots/$LATEST"
