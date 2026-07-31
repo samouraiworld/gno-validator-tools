@@ -36,6 +36,7 @@ alert() {
 # --- Anti-flapping ------------------------------------------------------------
 if [ -f "$LOCK_FILE" ]; then
   LOCK_TS="$(cat "$LOCK_FILE" 2>/dev/null || echo 0)"
+  [[ "$LOCK_TS" =~ ^[0-9]+$ ]] || LOCK_TS=0
   ELAPSED=$(( $(date -u +%s) - LOCK_TS ))
   if [ "$ELAPSED" -lt "$COOLDOWN" ]; then
     alert "cooldown-blocked" "${NODE_TYPE}: a restore already ran ${ELAPSED}s ago (cooldown ${COOLDOWN}s) — refusing to run again. Needs human investigation."
