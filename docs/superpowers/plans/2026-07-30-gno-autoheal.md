@@ -370,7 +370,16 @@ echo "==> Incident backup: $DATA_DIR -> $INCIDENT_ARCHIVE"
 tar -C "$NODE" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"
 
 # --- 2. Pick the latest local snapshot (highest block height) ---------------
-LATEST="$(ls -1 "$SNAP_DIR"/*.tar.zst 2>/dev/null | sort -t/ -k2 -t- -k1,1n | tail -n1)"
+# List bare filenames from inside SNAP_DIR (not ls "$SNAP_DIR"/*.tar.zst, which
+# would need sort -t twice — once to skip the dir prefix, once for the
+# height/timestamp separator — and GNU sort rejects more than one -t).
+LATEST=""
+if [ -d "$SNAP_DIR" ]; then
+  LATEST="$(cd "$SNAP_DIR" && ls -1 *.tar.zst 2>/dev/null | sort -t- -k1,1n | tail -n1)"
+fi
+if [ -n "$LATEST" ]; then
+  LATEST="$SNAP_DIR/$LATEST"
+fi
 if [ -z "$LATEST" ]; then
   alert "restore-failed" "$NODE: no snapshot available in $SNAP_DIR — aborting, node left untouched."
   exit 1
