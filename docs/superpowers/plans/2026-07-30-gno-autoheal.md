@@ -789,8 +789,16 @@ autoheal_s3_prefix: ""
 ```yaml
 ---
 galaxy_info:
+  author: Samouraï
   description: Stuck-node detection and automatic snapshot restore for gno validator/sentry nodes.
+  license: MIT
   min_ansible_version: "2.14"
+  galaxy_tags:
+    - gnoland
+    - autoheal
+    - restore
+    - scaleway
+
 dependencies: []
 ```
 
