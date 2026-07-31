@@ -23,6 +23,7 @@ LOCK_DIR=".autoheal"
 LOCK_FILE="$LOCK_DIR/${NODE}.lock"
 COOLDOWN="${AUTOHEAL_COOLDOWN:-1800}"                  # seconds, default 30 min
 CATCHUP_TIMEOUT="${AUTOHEAL_CATCHUP_TIMEOUT:-1200}"    # seconds, default 20 min
+INCIDENT_KEEP_LAST="${AUTOHEAL_INCIDENT_KEEP_LAST:-3}" # local incident archives kept
 INCIDENT_DIR="incidents"
 SNAP_DIR="snapshots"
 DATA_DIR="$NODE/gnoland-data"
@@ -63,6 +64,13 @@ if ! tar -C "$NODE" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"; then
   alert "restore-failed" "$NODE: incident backup failed — aborting before touching data."
   exit 1
 fi
+
+# Rotate local incident archives (keep the newest $INCIDENT_KEEP_LAST) —
+# unbounded archives eventually fill the disk, which would then make the
+# backup above fail on the next incident.
+ls -1t "$INCIDENT_DIR"/*.tar.zst 2>/dev/null \
+  | tail -n +"$((INCIDENT_KEEP_LAST + 1))" \
+  | xargs -r rm -f
 
 # --- 2. Pick the latest local snapshot (highest block height) ---------------
 # List bare filenames from inside SNAP_DIR (not ls "$SNAP_DIR"/*.tar.zst, which
