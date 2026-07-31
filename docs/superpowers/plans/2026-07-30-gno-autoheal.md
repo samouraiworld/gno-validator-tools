@@ -375,7 +375,7 @@ tar -C "$NODE" -c gnoland-data | zstd -q -T0 -o "$INCIDENT_ARCHIVE"
 # height/timestamp separator — and GNU sort rejects more than one -t).
 LATEST=""
 if [ -d "$SNAP_DIR" ]; then
-  LATEST="$(cd "$SNAP_DIR" && ls -1 *.tar.zst 2>/dev/null | sort -t- -k1,1n | tail -n1)"
+  LATEST="$(cd "$SNAP_DIR" && ls -1 *.tar.zst 2>/dev/null | sort -t- -k1,1n | tail -n1 || true)"
 fi
 if [ -n "$LATEST" ]; then
   LATEST="$SNAP_DIR/$LATEST"
