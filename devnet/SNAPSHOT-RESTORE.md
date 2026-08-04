@@ -120,6 +120,39 @@ make status
 docker compose logs tmkms | grep -i "double sign" || echo "no double-sign refusal — OK"
 ```
 
+## Auto-heal (detect + auto-restore)
+
+`check-stuck.sh <node>` samples `/status` on a timer (see
+`systemd/gno-autoheal-check.{service,timer}`); after 3 consecutive checks
+with an unchanged height and `catching_up=false`, it hands off to
+`autoheal.sh <node>`, which backs up the current data (`incidents/`), restores
+the latest local snapshot, restarts (tmkms-aware for `validator`), and waits
+for catch-up. A lock file (`.autoheal/<node>.lock`) enforces a 30 min cooldown
+between automatic restores.
+
+Manual trigger (bypasses detection): `make autoheal NODE=<svc>`.
+
+**Known limitation — validator restore during a whole-network halt.**
+Auto-heal is safe for its main target (a single validator lagging behind a
+*healthy, progressing* network — restoring chain data while leaving tmkms's
+`consensus_state.json` untouched never conflicts with a live round that's
+already well past whatever tmkms remembers). It is NOT safe if the entire
+network has halted (lost quorum) and the validator is restored *while still
+frozen mid-round*: on resume it can rejoin at the exact same in-flight
+height/round tmkms already partially signed, which tmkms correctly refuses
+as a step regression — a refusal that can permanently deadlock that
+validator (and the network, if its power is needed for quorum). The
+catch-up verification loop times out and alerts if this happens (it
+requires the height to advance past the post-restore tip, not just
+`catching_up=false`), so it won't be silent — but recovery is manual. Real
+fix (deliberately advancing tmkms's state) touches double-sign protection
+directly and is out of scope here; do not trigger auto-heal on a validator
+while the wider network is known to be down.
+
+See `make scenario-autoheal-follower` / `scenario-autoheal-validator` /
+`scenario-autoheal-no-snapshot` / `scenario-autoheal-cooldown` for the test
+scenarios.
+
 ## Production (later)
 
 On the host running the sentry, add the same `snapshotter` via a

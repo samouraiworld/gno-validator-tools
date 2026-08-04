@@ -1,0 +1,59 @@
+---
+# =============================================================================
+# Install stuck-node detection + auto-restore on the sentry AND the validator.
+# Snapshots come from Scaleway Object Storage (roles/snapshotter, sentry-only,
+# must already be running and pushing).
+#
+#   ansible-playbook -i inventory.yaml install-autoheal.yml --tags autoheal
+#
+# Unlike this repo's other playbooks, this one runs BOTH plays every time and
+# takes no -e target=... — use Ansible's standard --limit gno-sentry (or
+# --limit gno-validator) to touch only one host in a given run.
+#
+# `gno_dir` must already be set in inventory (host_vars/group_vars) with the
+# same value used when the node was deployed — it is deliberately NOT set here
+# so a play var can't silently override it. If it is set nowhere, Ansible
+# fails with an explicit undefined-variable error while rendering
+# autoheal_deploy_dir, which is the correct fail-closed behaviour.
+#
+# The role stages the scripts + systemd timer but does NOT enable it. Finish
+# on each host: fill .env (read-only Scaleway key + webhook URL), then
+# `systemctl enable --now gno-autoheal-check.timer`. See roles/autoheal/README.md.
+# =============================================================================
+
+- name: Install auto-heal on the sentry
+  hosts: gno-sentry
+  become: false
+
+  vars:
+    autoheal_enabled: true
+    autoheal_node_type: sentry
+    autoheal_chain_id: "dev"                # <-- set to the deployed chain id
+    # Must match roles/snapshotter's snapshotter_s3_bucket / snapshotter_s3_prefix.
+    autoheal_s3_bucket: gno-snapshots-prod
+    autoheal_s3_prefix: "gno-sentry/snapshotter"
+
+  tasks:
+    - name: Deploy autoheal role (sentry)
+      ansible.builtin.include_role:
+        name: autoheal
+      when: autoheal_enabled | default(false) | bool
+      tags: [autoheal]
+
+- name: Install auto-heal on the validator
+  hosts: gno-validator
+  become: false
+
+  vars:
+    autoheal_enabled: true
+    autoheal_node_type: validator
+    autoheal_chain_id: "dev"                # <-- set to the deployed chain id
+    autoheal_s3_bucket: gno-snapshots-prod
+    autoheal_s3_prefix: "gno-sentry/snapshotter"
+
+  tasks:
+    - name: Deploy autoheal role (validator)
+      ansible.builtin.include_role:
+        name: autoheal
+      when: autoheal_enabled | default(false) | bool
+      tags: [autoheal]

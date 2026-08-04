@@ -1,0 +1,89 @@
+---
+# tasks file for roles/autoheal — deploy stuck-node detection + auto-restore
+# on THIS host (sentry or validator, per autoheal_node_type). Stages
+# everything but does NOT start the timer: the operator fills .env (Scaleway
+# read-only keys + webhook URL) and enables it. No secret is ever rendered by
+# this role (only autoheal.env.example).
+
+- name: Assert required variables are set
+  ansible.builtin.assert:
+    that:
+      - autoheal_node_type in ['sentry', 'validator']
+      - autoheal_chain_id | length > 0
+      - autoheal_s3_bucket | length > 0
+      - autoheal_s3_prefix | length > 0
+    fail_msg: >-
+      autoheal_node_type must be 'sentry' or 'validator', and
+      autoheal_chain_id/autoheal_s3_bucket/autoheal_s3_prefix must be set
+      (s3_bucket/s3_prefix must match the sentry's roles/snapshotter values).
+
+- name: Ensure auto-heal dependencies are installed
+  ansible.builtin.apt:
+    name: [jq, zstd, curl, rclone]
+    state: present
+    update_cache: true
+
+- name: Assert the deploy dir exists (the node must already be deployed)
+  ansible.builtin.stat:
+    path: "{{ autoheal_deploy_dir }}/gnoland-data"
+  register: _data_dir
+
+- name: Fail if the node isn't deployed yet
+  ansible.builtin.fail:
+    msg: >-
+      {{ autoheal_deploy_dir }}/gnoland-data not found. Deploy the
+      {{ autoheal_node_type }} node first (see DEPLOYMENT_RUNBOOK.md).
+  when: not _data_dir.stat.exists
+
+- name: Create state dir
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ autoheal_state_dir }}"
+    - "{{ autoheal_state_dir }}/incidents"
+
+- name: Stage restore.sh
+  ansible.builtin.copy:
+    src: restore.sh
+    dest: "{{ autoheal_deploy_dir }}/restore.sh"
+    mode: "0755"
+
+- name: Render check-stuck.sh + pull-from-s3.sh + autoheal.sh
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ autoheal_deploy_dir }}/{{ item }}"
+    mode: "0755"
+  loop:
+    - check-stuck.sh
+    - pull-from-s3.sh
+    - autoheal.sh
+
+# .env.example only — placeholders, no secret. The operator copies it to .env.
+- name: Render autoheal.env.example
+  ansible.builtin.template:
+    src: autoheal.env.example.j2
+    dest: "{{ autoheal_deploy_dir }}/autoheal.env.example"
+    mode: "0644"
+
+- name: Render systemd units (service + timer)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - gno-autoheal-check.service
+    - gno-autoheal-check.timer
+  notify: reload systemd
+
+# Deliberately NOT started/enabled here — see the debug message.
+- name: Auto-heal staged
+  ansible.builtin.debug:
+    msg: >-
+      Auto-heal staged in {{ autoheal_deploy_dir }} for node_type
+      {{ autoheal_node_type }}. Next (operator):
+      1) cp autoheal.env.example .env && chmod 600 .env  (fill a READ-ONLY
+         Scaleway key matching the sentry's bucket/prefix, + webhook URL)
+      2) systemctl enable --now gno-autoheal-check.timer
+      3) systemctl list-timers gno-autoheal-check.timer

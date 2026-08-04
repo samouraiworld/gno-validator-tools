@@ -26,9 +26,10 @@ DEV_CHAIN    := dev
 .PHONY: help up up-validator4 up-snapshotter ensure-bootstrap down reinit regen-genesis full-reinit clean-db clean-all status logs \
         stop-val1 stop-val2 stop-val3 stop-val4 \
         start-val1 start-val2 start-val3 start-val4 \
-        snapshot snapshots restore-fullnode restore-validator \
+        check-stuck autoheal snapshot snapshots restore-fullnode restore-validator \
         scenario1 scenario2 scenario2-restart scenario3 scenario3-restart \
-        scenario4 scenario4-restart scenario5 scenario-mute
+        scenario4 scenario4-restart scenario5 scenario-mute \
+        scenario-autoheal-follower scenario-autoheal-validator scenario-autoheal-no-snapshot scenario-autoheal-cooldown
 
 help:
 	@echo "Chain lifecycle:"
@@ -49,6 +50,14 @@ help:
 	@echo "  make snapshots         - list available snapshot archives"
 	@echo "  make restore-fullnode NODE=<svc> SNAP=<file> - restore a full node from a snapshot"
 	@echo "  make restore-validator SNAP=<file>           - restore the validator (tmkms checklist prompt)"
+	@echo "  make check-stuck NODE=<svc>   - run one stuck-detection check on <svc>"
+	@echo "  make autoheal NODE=<svc>      - manually trigger the auto-heal restore on <svc>"
+	@echo ""
+	@echo "Auto-heal scenarios:"
+	@echo "  make scenario-autoheal-follower  - stop validator4, force-restore it, network stays healthy"
+	@echo "  make scenario-autoheal-validator - force auto-heal restore of the tmkms validator, network stays healthy"
+	@echo "  make scenario-autoheal-no-snapshot - autoheal aborts cleanly with no snapshot available"
+	@echo "  make scenario-autoheal-cooldown  - second auto-heal within cooldown is blocked"
 	@echo ""
 	@echo "Per-validator control:"
 	@echo "  make stop-val1..4      - docker compose stop validator[N]"
@@ -165,6 +174,12 @@ start-val3:
 	docker compose start validator3
 start-val4:
 	docker compose start validator4
+
+check-stuck: ## make check-stuck NODE=validator2
+	./check-stuck.sh $(NODE)
+
+autoheal: ## make autoheal NODE=validator2  (manual trigger, bypasses detection)
+	./autoheal.sh $(NODE)
 
 # Capture a chain snapshot from the snapshotter node (db only, wal excluded),
 # then rotate to the RETENTION most recent. Override retention: RETENTION=48 make snapshot
@@ -332,3 +347,53 @@ scenario-mute:
 	@echo "And confirm the dedup log line appears:"
 	@echo "  docker logs gnomonitoring-backend | grep 'dedup: skipping'"
 	@echo "Restart with: make scenario2-restart"
+
+# Neither this scenario nor scenario-autoheal-validator halts the network:
+# the real incident auto-heal protects against is a single node falling
+# behind/crashing while the rest of the network stays healthy — confirmed
+# against a real production restore that needed no consensus_state changes
+# at all. Stopping validator4 here makes its RPC unreachable, which
+# check-stuck.sh correctly treats as DOWN (not "stuck") and never
+# auto-triggers on — so this scenario forces autoheal.sh directly rather
+# than going through detection. Known limitation: no scenario in this
+# devnet suite live-exercises check-stuck.sh's actual stuck-counter/
+# threshold logic end-to-end (it's covered by code review only, see Task 1)
+# — simulating "RPC alive but height frozen" for a single node isn't
+# practical with the primitives available here.
+scenario-autoheal-follower: up-validator4
+	@echo "==> Stopping validator4 (simulating a crashed/down follower node)"
+	docker compose stop validator4
+	@echo "==> Network stays healthy (validator/validator2/validator3 keep producing blocks)"
+	@echo "==> Forcing an auto-heal restore on validator4 directly"
+	./autoheal.sh validator4
+	@echo "==> Confirm validator4 caught up and is producing new blocks with the rest of the network:"
+	curl -s http://localhost:26661/status | jq -r '.result.sync_info'
+	$(MAKE) status
+
+# See the comment on scenario-autoheal-follower above: same rationale,
+# applied to the tmkms-signing validator instead of a plain follower. This
+# is the scenario that matters most for anti-double-sign confidence — it
+# forces the validator-specific restart/rejoin/live-signing path directly.
+scenario-autoheal-validator:
+	@echo "==> Network stays healthy (validator2/3/4 keep producing blocks) — forcing an auto-heal restore on the tmkms validator directly"
+	./autoheal.sh validator
+	@echo "==> Confirm the validator resumed LIVE signing (no 'double sign' refusal in tmkms logs):"
+	sleep 15
+	docker compose logs tmkms --tail 30 | grep -i "sign" || echo "(no sign-related log lines yet)"
+	@echo "==> Confirm validator is live and in sync with the rest of the network:"
+	curl -s http://localhost:26658/status | jq -r '.result.sync_info'
+	$(MAKE) status
+
+scenario-autoheal-no-snapshot:
+	@echo "==> Temporarily hiding snapshots/ to force a no-snapshot failure"
+	mv snapshots snapshots.scenario-bak 2>/dev/null || true
+	mkdir snapshots
+	./autoheal.sh validator4; echo "exit=$$?  (expect 1)"
+	rm -rf snapshots
+	mv snapshots.scenario-bak snapshots
+
+scenario-autoheal-cooldown:
+	@echo "==> First run (expect success or a real failure, but the lock gets written)"
+	-./autoheal.sh validator4
+	@echo "==> Second run immediately after (expect cooldown-blocked, exit 1)"
+	./autoheal.sh validator4; echo "exit=$$?  (expect 1)"

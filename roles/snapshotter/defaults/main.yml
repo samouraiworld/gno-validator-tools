@@ -38,6 +38,3 @@ snapshotter_s3_bucket: ""                       # e.g. gno-snapshots-prod
 snapshotter_s3_endpoint: "s3.fr-par.scw.cloud"
 snapshotter_s3_region: "fr-par"
 snapshotter_s3_prefix: "{{ inventory_hostname }}/snapshotter"
-
-# Lifecycle (STANDARD → GLACIER after 7 d, expire after 90 d) is configured by
-# the operator in the Scaleway console — NOT by this role. See README.

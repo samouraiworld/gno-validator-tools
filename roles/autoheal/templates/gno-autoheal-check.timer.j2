@@ -1,0 +1,9 @@
+[Unit]
+Description=Run gno-autoheal-check.service periodically
+
+[Timer]
+OnCalendar={{ autoheal_check_interval }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

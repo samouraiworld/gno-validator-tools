@@ -66,6 +66,26 @@ echo "==> Restarting $NODE"
 docker compose start "$NODE" >/dev/null
 trap - EXIT
 
+# Health check: confirm the snapshotter actually came back up before trusting
+# this run (and before push-to-s3.sh ships the archive — see gno-snapshot.service).
+HEALTH_TIMEOUT="${HEALTH_CHECK_TIMEOUT:-30}"
+echo "==> Health-checking $NODE after restart (timeout ${HEALTH_TIMEOUT}s)"
+HEALTHY=0
+for ((elapsed=0; elapsed<HEALTH_TIMEOUT; elapsed+=2)); do
+  if curl -s --max-time 3 "$RPC/status" \
+      | jq -e '.result.sync_info.latest_block_height' >/dev/null 2>&1; then
+    HEALTHY=1
+    break
+  fi
+  sleep 2
+done
+
+if [ "$HEALTHY" -ne 1 ]; then
+  echo "❌ $NODE did not come back healthy after restart (RPC not responding within ${HEALTH_TIMEOUT}s)" >&2
+  exit 1
+fi
+echo "✅ $NODE healthy after restart"
+
 echo "==> Rotating local (keep $RETENTION most recent)"
 ls -1t "$SNAP_DIR"/*.tar.zst 2>/dev/null \
   | tail -n +"$((RETENTION + 1))" \
