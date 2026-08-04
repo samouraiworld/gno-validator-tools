@@ -55,7 +55,7 @@ echo "==> Wiping gnoland-data/{db,wal}"
 rm -rf gnoland-data/db gnoland-data/wal
 
 echo "==> Extracting $ARCHIVE"
-zstd -dc "$ARCHIVE" | tar -C gnoland-data -x
+zstd -dc --long=31 "$ARCHIVE" | tar -C gnoland-data -x
 
 echo "==> Starting $SERVICE"
 docker compose start "$SERVICE" >/dev/null
