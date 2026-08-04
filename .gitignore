@@ -34,6 +34,13 @@ gno/
 tests/info-for-me.md
 
 # =============================================================================
+# Superpowers — internal planning artifacts (brainstorming, plans, task
+# reports), never meant to be committed.
+# =============================================================================
+.superpowers/
+docs/superpowers/
+
+# =============================================================================
 # Secrets — defense-in-depth, match anywhere in the tree. Never commit keys.
 # (Per-directory .gitignore files, e.g. devnet/.gitignore, still apply too.)
 # =============================================================================
