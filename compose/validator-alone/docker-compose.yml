@@ -21,6 +21,12 @@ services:
     ports:
       - "26656:26656"
       - "127.0.0.1:26657:26657"
+      # tmkms TCP signer port. Required when TMKMS_LISTEN_ADDR is set: gnoland
+      # listens on it INSIDE the container, so without this mapping the remote
+      # signer gets "connection refused". Docker publishes it on every host
+      # interface and bypasses UFW — restrict the source in DOCKER-USER, see
+      # roles/ufw (docker_user_rules) and TMKMS.md section 4.
+      - "26659:26659"
     volumes:
       - ./entrypoint.sh:/entrypoint.sh:ro
       - ./config.toml:/gnoroot/config.toml:ro

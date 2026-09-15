@@ -1,0 +1,38 @@
+#!/bin/sh
+# Managed by Ansible (roles/ufw) — do not edit by hand.
+#
+# Source-pins ports published by Docker containers. UFW cannot do this: the
+# FORWARD chain is ordered DOCKER-USER -> DOCKER-FORWARD -> ufw-*, so Docker
+# accepts published-port traffic before UFW sees it, and UFW's own rules live
+# in INPUT, which container-bound traffic never traverses.
+#
+# Idempotent: the chain is flushed and rebuilt on every run. Docker creates
+# DOCKER-USER but never puts rules in it, so flushing is safe.
+set -e
+
+# DOCKER-USER lives in FORWARD, which carries BOTH directions: packets coming
+# from outside into a container, AND packets a container sends out to the
+# world. A rule matching only "--dport <port>" therefore also matches this
+# host's own containers dialling that port on a REMOTE machine — their source
+# is the container IP (172.x), so "! -s <allowed>" is true and the packet is
+# dropped. That silently breaks outbound peering and looks like a timeout.
+#
+# So every rule is scoped to the external interface, i.e. inbound traffic only.
+# Derived from the default route at apply time, so no per-host variable.
+EXT_IF="$(ip route show default 2>/dev/null | awk '/^default/{print $5; exit}')"
+if [ -z "$EXT_IF" ]; then
+  echo "docker-user-rules: cannot determine the external interface" >&2
+  exit 1
+fi
+
+# The chain exists only once Docker has installed its iptables rules.
+iptables -N DOCKER-USER 2>/dev/null || true
+iptables -F DOCKER-USER
+
+{% for rule in docker_user_rules %}
+# {{ rule.port }} reachable from {{ rule.from_ip }} only (inbound on $EXT_IF)
+iptables -A DOCKER-USER -i "$EXT_IF" -p tcp --dport {{ rule.port }} ! -s {{ rule.from_ip }} -j DROP
+{% endfor %}
+
+# Fall through to the rest of FORWARD (matches Docker's own default).
+iptables -A DOCKER-USER -j RETURN

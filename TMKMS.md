@@ -144,10 +144,25 @@ runs on the **dedicated signer host** (not the validator), which needs
 4. **Validator host**: fill `TMKMS_CHAIN_ID`, `TMKMS_LISTEN_ADDR`
    (`tcp://0.0.0.0:26659`) and `TMKMS_ALLOWED_KMS_PUBKEYS` (the
    `ed25519:...` printed in step 3 — **required** in TCP, empty = fail-open,
-   accepts any signer) in `compose/validator-alone/.env`. Open the firewall
-   to the signer host's IP only on port 26659 (`ufw_tmkms_port` +
-   `ufw_tmkms_signer_ip` in `base_setup.yml`'s `ufw` role — see
-   `roles/ufw/README.md`), start the validator.
+   accepts any signer) in `compose/validator-alone/.env`. `26659:26659` must
+   be published in the validator's compose file, otherwise gnoland listens
+   only inside the container and the signer gets "connection refused".
+
+   **Restricting that port is a `DOCKER-USER` job, not a UFW one.** A port
+   published by Docker bypasses UFW entirely: FORWARD is ordered
+   `DOCKER-USER` -> `DOCKER-FORWARD` -> `ufw-*`, so Docker accepts the packet
+   before UFW is consulted, and UFW's own rules sit in INPUT, which
+   container-bound traffic never traverses. `ufw_tmkms_port` /
+   `ufw_tmkms_signer_ip` therefore do **not** protect 26659 — they are
+   effective only if the validator runs outside Docker. Use `docker_user_rules`
+   in `base_setup.yml`'s `ufw` role instead:
+
+   ```yaml
+   docker_user_rules:
+     - { port: 26659, from_ip: <SIGNER_HOST_IP> }
+   ```
+
+   Then start the validator.
 5. Verify the same way as §3 (stop/start the signer, watch the chain stall
    and resume).
 
