@@ -25,6 +25,7 @@ vagrant/*.log
 # =============================================================================
 *.retry
 inventory.yaml
+inventory-mainet.yaml
 vagrant-test-plan.md
 review-2026-03-31.md
 gno/
@@ -32,6 +33,10 @@ gno/
 
 # Personal notes — never commit
 tests/info-for-me.md
+
+# Incident evidence (packet captures, logs with production IPs and peer IDs) —
+# local only, never commit to this public repository
+anomalie/
 
 # =============================================================================
 # Superpowers — internal planning artifacts (brainstorming, plans, task
@@ -55,3 +60,15 @@ docs/superpowers/
 **/.gnokey*/
 **/.env
 !**/.env.example
+
+# Rehearsal chain artifacts (rehearsal/bootstrap.sh) — generated, never committed
+rehearsal/genesis.json
+rehearsal/genesis.json.bak.*
+rehearsal/genesis_balances.txt
+rehearsal/config.toml
+rehearsal/.env.*
+# Hardcodes production host IPs — local only
+rehearsal/bootstrap.sh
+
+# Personal mainnet monitoring script — local only
+check-missed-blocks/
