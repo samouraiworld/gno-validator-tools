@@ -303,6 +303,23 @@ for a sentry) in `docker-compose.yml`, gnoland secrets
 presence of `gnoland-data/db`+`wal`, `genesis.json` (SHA256), and
 `config.toml`.
 
+### check-missed-blocks.py
+
+**Location:** `check-missed-blocks/check-missed-blocks.py` (runs from any
+machine with access to a gnoland RPC — requires Python 3 and `requests`)
+
+**Usage:**
+```bash
+python3 check-missed-blocks/check-missed-blocks.py <g1-validator-address> \
+  [--blocks 500] [--rpc https://rpc.mainnet.samourai.live]
+```
+
+Walks the last `--blocks` blocks (default 500) and checks, for each height H,
+that the validator's precommit is present in the `last_commit` of block H+1.
+Prints every missed height, then a summary: checked / signed / missed /
+errors and the uptime percentage over the window. One RPC call per block, so
+keep the window reasonable against public endpoints.
+
 ---
 
 ## Variables reference

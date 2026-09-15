@@ -69,6 +69,3 @@ rehearsal/config.toml
 rehearsal/.env.*
 # Hardcodes production host IPs — local only
 rehearsal/bootstrap.sh
-
-# Personal mainnet monitoring script — local only
-check-missed-blocks/
