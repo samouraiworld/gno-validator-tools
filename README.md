@@ -305,12 +305,12 @@ presence of `gnoland-data/db`+`wal`, `genesis.json` (SHA256), and
 
 ### check-missed-blocks.py
 
-**Location:** `check-missed-blocks/check-missed-blocks.py` (runs from any
+**Location:** `tools/check-missed-blocks.py` (runs from any
 machine with access to a gnoland RPC — requires Python 3 and `requests`)
 
 **Usage:**
 ```bash
-python3 check-missed-blocks/check-missed-blocks.py <g1-validator-address> \
+python3 tools/check-missed-blocks.py <g1-validator-address> \
   [--blocks 500] [--rpc https://rpc.mainnet.samourai.live]
 ```
 
