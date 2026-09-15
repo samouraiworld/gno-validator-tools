@@ -39,6 +39,21 @@
     - "{{ tmkms_remote_dir }}"
     - "{{ tmkms_remote_dir }}/secrets"
 
+# docker compose derives the project name from the DIRECTORY BASENAME. Both
+# signer stacks live in "<gno_dir>/tmkms/", so both would be named "tmkms" and
+# `docker compose up -d` in the second one REPLACES the first one's container:
+# one validator silently ends up with no signer at all, and its gnoland logs
+# only say "SignerListener: accept failed ... i/o timeout".
+# Pinning COMPOSE_PROJECT_NAME in the project .env makes plain
+# `docker compose up -d` correct, with no -p flag to remember.
+- name: Pin COMPOSE_PROJECT_NAME so co-located signer stacks do not collide
+  ansible.builtin.lineinfile:
+    path: "{{ tmkms_remote_dir }}/.env"
+    regexp: "^COMPOSE_PROJECT_NAME="
+    line: "COMPOSE_PROJECT_NAME={{ gno_dir }}"
+    create: true
+    mode: "0600"
+
 - name: Create tmkms run/ directory (uds mode only — shared privval socket dir)
   ansible.builtin.file:
     path: "{{ tmkms_remote_dir }}/run"

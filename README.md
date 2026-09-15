@@ -155,6 +155,9 @@ ansible-playbook -i inventory.yaml setup-tmkms.yml \
   -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
+Reusing an existing tmkms deployment on a **new chain** (directory copied
+from the previous testnet): `TMKMS.md` §10 — chain-bound files to reset.
+
 ### Step 5 — Cold log retention (optional, independent of Alloy)
 
 ```bash
