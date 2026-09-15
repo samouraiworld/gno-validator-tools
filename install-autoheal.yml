@@ -6,15 +6,29 @@
 #
 #   ansible-playbook -i inventory.yaml install-autoheal.yml --tags autoheal
 #
-# Unlike this repo's other playbooks, this one runs BOTH plays every time and
-# takes no -e target=... — use Ansible's standard --limit gno-sentry (or
-# --limit gno-validator) to touch only one host in a given run.
+# This playbook runs BOTH plays every time, against the `sentries` and
+# `validators` inventory groups. Use --limit <host> to touch only one host in
+# a given run. To retarget, use -e sentry_target=<host-or-group> and/or
+# -e validator_target=<host-or-group> — deliberately NOT a single `target`,
+# which both plays would pick up and apply the sentry play to validators.
 #
-# `gno_dir` must already be set in inventory (host_vars/group_vars) with the
-# same value used when the node was deployed — it is deliberately NOT set here
-# so a play var can't silently override it. If it is set nowhere, Ansible
-# fails with an explicit undefined-variable error while rendering
-# autoheal_deploy_dir, which is the correct fail-closed behaviour.
+# `gno_dir`, `autoheal_chain_id`, `autoheal_s3_bucket` and `autoheal_s3_prefix`
+# must be set in inventory (host_vars/group_vars) — they are deliberately NOT
+# play vars here, because play vars outrank inventory and would silently
+# freeze every environment to one value. If they are set nowhere, Ansible
+# fails with an explicit undefined/empty error, which is the correct
+# fail-closed behaviour.
+#
+# autoheal_s3_prefix MUST match the prefix the sentry's roles/snapshotter
+# writes to (snapshotter_s3_prefix, default "{{ inventory_hostname }}/snapshotter").
+# A mismatch means autoheal silently finds no snapshot to restore from.
+#
+# /!\ TMKMS TOPOLOGY: roles/autoheal drives tmkms with `docker compose stop
+# <service> tmkms` inside the node's OWN deploy dir. That only works for a
+# co-located UDS sidecar (compose/validator-sentry-tmkms/). With a dedicated
+# TCP signer host (compose/tmkms-alone/), the remote tmkms is NOT stopped
+# before the chain data is wiped and the restart step fails — see TMKMS.md
+# section 4. Do not enable autoheal on validators in that topology.
 #
 # The role stages the scripts + systemd timer but does NOT enable it. Finish
 # on each host: fill .env (read-only Scaleway key + webhook URL), then
@@ -22,16 +36,12 @@
 # =============================================================================
 
 - name: Install auto-heal on the sentry
-  hosts: gno-sentry
+  hosts: "{{ sentry_target | default('sentries') }}"
   become: false
 
   vars:
     autoheal_enabled: true
     autoheal_node_type: sentry
-    autoheal_chain_id: "dev"                # <-- set to the deployed chain id
-    # Must match roles/snapshotter's snapshotter_s3_bucket / snapshotter_s3_prefix.
-    autoheal_s3_bucket: gno-snapshots-prod
-    autoheal_s3_prefix: "gno-sentry/snapshotter"
 
   tasks:
     - name: Deploy autoheal role (sentry)
@@ -41,15 +51,12 @@
       tags: [autoheal]
 
 - name: Install auto-heal on the validator
-  hosts: gno-validator
+  hosts: "{{ validator_target | default('validators') }}"
   become: false
 
   vars:
     autoheal_enabled: true
     autoheal_node_type: validator
-    autoheal_chain_id: "dev"                # <-- set to the deployed chain id
-    autoheal_s3_bucket: gno-snapshots-prod
-    autoheal_s3_prefix: "gno-sentry/snapshotter"
 
   tasks:
     - name: Deploy autoheal role (validator)
