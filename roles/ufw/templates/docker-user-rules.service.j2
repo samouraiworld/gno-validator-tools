@@ -7,6 +7,11 @@
 Description=Source-pinned DOCKER-USER rules for published container ports
 After=docker.service
 Requires=docker.service
+# Requires= only propagates activation and stop, NOT restart: after a
+# `systemctl restart docker` this oneshot would stay "active (exited)" while
+# Docker rebuilds its chains from scratch, silently dropping the source pins.
+# PartOf= propagates stop AND restart, so the rules are reapplied every time.
+PartOf=docker.service
 
 [Service]
 Type=oneshot
