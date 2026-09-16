@@ -1,0 +1,22 @@
+# Managed by Ansible (roles/ufw) — do not edit by hand.
+#
+# Reapplies the DOCKER-USER rules after Docker has (re)built its chains.
+# Deliberately NOT iptables-persistent: that would also save and replay
+# Docker's dynamic chains at boot, which conflicts with Docker managing them.
+[Unit]
+Description=Source-pinned DOCKER-USER rules for published container ports
+After=docker.service
+Requires=docker.service
+# Requires= only propagates activation and stop, NOT restart: after a
+# `systemctl restart docker` this oneshot would stay "active (exited)" while
+# Docker rebuilds its chains from scratch, silently dropping the source pins.
+# PartOf= propagates stop AND restart, so the rules are reapplied every time.
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/docker-user-rules.sh
+
+[Install]
+WantedBy=multi-user.target

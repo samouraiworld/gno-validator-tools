@@ -14,3 +14,18 @@ ufw_ports_moni: []
 # roles/tmkms, compose/tmkms-alone/.
 ufw_tmkms_port: ""
 ufw_tmkms_signer_ip: ""
+
+# Source-pinned rules for ports published by Docker containers.
+#
+# UFW does NOT filter published container ports. The FORWARD chain is ordered
+# DOCKER-USER -> DOCKER-FORWARD -> ufw-before-forward: Docker accepts the
+# traffic before UFW is ever consulted, and UFW's own allow/deny rules live in
+# INPUT, which container-bound traffic never traverses. DOCKER-USER is the
+# documented hook — Docker traverses it first and never flushes it.
+#
+# Each entry allows `port` from `from_ip` only, and drops it from everywhere
+# else. Empty by default (no-op). Example:
+#   docker_user_rules:
+#     - { port: 26656, from_ip: 10.0.0.2 }
+#     - { port: 26659, from_ip: 203.0.113.7 }
+docker_user_rules: []

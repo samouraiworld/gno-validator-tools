@@ -8,7 +8,9 @@ PRIVATE_PEER_IDS=${PRIVATE_PEER_IDS:-""}
 SEEDS=${SEEDS:-""}
 MAX_PEERS=${MAX_PEERS:-"40"}
 INBOUND=${INBOUND:-"40"}
-
+TIMEOUT_COMMIT=${TIMEOUT_COMMIT:-"3s"}
+PEER_GOSSIP_SLEEP=${PEER_GOSSIP_SLEEP:-"10ms"}
+FLUSH_THROTTLE=${FLUSH_THROTTLE:-"10ms"}
 
 # Gen secrets if not exits
 
@@ -35,6 +37,11 @@ gnoland config set rpc.laddr "tcp://0.0.0.0:26657"
 
 gnoland config set telemetry.service_instance_id "${MONIKER}"
 gnoland config set telemetry.exporter_endpoint "otel-collector:4317"
+# Chain-wide mandatory values (gnoland-1 docs) — config init --force resets them
+gnoland config set consensus.timeout_commit             "${TIMEOUT_COMMIT}"
+gnoland config set consensus.peer_gossip_sleep_duration "${PEER_GOSSIP_SLEEP}"
+gnoland config set p2p.flush_throttle_timeout           "${FLUSH_THROTTLE}"
+gnoland config set application.prune_strategy           "syncable"
 
 # tmkms mode (opt-in via TMKMS_LISTEN_ADDR): externalize consensus signing to a
 # tmkms sidecar instead of signing locally with priv_validator_key.json.

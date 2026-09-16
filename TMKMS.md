@@ -144,10 +144,25 @@ runs on the **dedicated signer host** (not the validator), which needs
 4. **Validator host**: fill `TMKMS_CHAIN_ID`, `TMKMS_LISTEN_ADDR`
    (`tcp://0.0.0.0:26659`) and `TMKMS_ALLOWED_KMS_PUBKEYS` (the
    `ed25519:...` printed in step 3 — **required** in TCP, empty = fail-open,
-   accepts any signer) in `compose/validator-alone/.env`. Open the firewall
-   to the signer host's IP only on port 26659 (`ufw_tmkms_port` +
-   `ufw_tmkms_signer_ip` in `base_setup.yml`'s `ufw` role — see
-   `roles/ufw/README.md`), start the validator.
+   accepts any signer) in `compose/validator-alone/.env`. `26659:26659` must
+   be published in the validator's compose file, otherwise gnoland listens
+   only inside the container and the signer gets "connection refused".
+
+   **Restricting that port is a `DOCKER-USER` job, not a UFW one.** A port
+   published by Docker bypasses UFW entirely: FORWARD is ordered
+   `DOCKER-USER` -> `DOCKER-FORWARD` -> `ufw-*`, so Docker accepts the packet
+   before UFW is consulted, and UFW's own rules sit in INPUT, which
+   container-bound traffic never traverses. `ufw_tmkms_port` /
+   `ufw_tmkms_signer_ip` therefore do **not** protect 26659 — they are
+   effective only if the validator runs outside Docker. Use `docker_user_rules`
+   in `base_setup.yml`'s `ufw` role instead:
+
+   ```yaml
+   docker_user_rules:
+     - { port: 26659, from_ip: <SIGNER_HOST_IP> }
+   ```
+
+   Then start the validator.
 5. Verify the same way as §3 (stop/start the signer, watch the chain stall
    and resume).
 
@@ -323,6 +338,114 @@ Cold (GLACIER-tier) archives need thawing first — see
 
 The validator host in this topology only needs `compose/validator-alone/`
 with `TMKMS_*` filled in — no `tmkms/` directory there at all.
+
+---
+
+## 10. Repointing tmkms at a new chain (new `chain_id`)
+
+Typical case: you copied `/root/gno-<oldchain>/` to `/root/gno-<newchain>/`
+to bring up a new testnet. Everything under `tmkms/` still describes the
+**old** chain. Five things are chain-bound and must be dealt with; one is
+not.
+
+| Item | Chain-bound? | What to do |
+|---|---|---|
+| `tmkms/tmkms.toml` | ✅ `chain_id` appears **3×** (`[[chain]].id`, `providers.softsign.chain_ids`, `[[validator]].chain_id`) | re-render (playbook) or `sed` all three — a single leftover breaks signing |
+| `tmkms/secrets/consensus_state.json` | ✅ high-water mark (H/R/S) of the **old** chain | **delete it** — tmkms recreates it at height 0 |
+| `tmkms/secrets/consensus.key` | ⚠️ depends | new validator identity → delete + reslice from the new `priv_validator_key.json`; same identity reused → keep as is |
+| `.env` → `TMKMS_CHAIN_ID` | ✅ | set to the new chain id |
+| `validator/gnoland-data/{db,wal,config,genesis.json}` | ✅ old chain data | wipe, drop in the new `genesis.json` |
+| `tmkms/secrets/kms-identity.key` | ❌ transport identity, not chain state | keep (TCP: `TMKMS_ALLOWED_KMS_PUBKEYS` stays unchanged) |
+
+**Why `consensus_state.json` is the one that always bites:** tmkms records
+the highest height it ever signed and refuses anything `<=` it. The copied
+file says "already signed height 120000"; the new chain starts at height 1,
+so tmkms refuses every request and the validator never signs — with no
+obvious error on the gnoland side. Same reason `devnet/reinit-chain.sh`
+deletes it on every chain reset.
+
+> ⚠️ Deleting `consensus_state.json` is safe **only** when the chain is
+> genuinely different (different `chain_id`) or has been reset from genesis.
+> Never do it on a live chain the key is already signing — that is exactly
+> the double-sign the file exists to prevent (§5 golden rule).
+
+### Procedure — same-host UDS sidecar
+
+```bash
+cd /root/<gno_dir>            # the freshly copied directory
+docker compose down
+
+# 1. New chain identity everywhere
+NEW_CHAIN=$(jq -r .chain_id validator/genesis.json)   # authoritative source
+sed -i "s/TMKMS_CHAIN_ID=.*/TMKMS_CHAIN_ID=${NEW_CHAIN}/" .env
+
+# 2. Wipe the old chain data (NOT gnoland-data/secrets/)
+rm -rf validator/gnoland-data/{db,wal,config}
+printf '{"height":"0","round":"0","step":0}\n' \
+  > validator/gnoland-data/secrets/priv_validator_state.json
+
+# 3. Drop the old signer state — the step everyone forgets
+rm -f tmkms/secrets/consensus_state.json
+
+# 4. New validator identity? (usually yes for a new testnet)
+#    a) generate fresh gnoland secrets in validator/gnoland-data/secrets/
+#       (`gnoland secrets init`, see DEPLOYMENT_RUNBOOK.md §1), then:
+rm -f tmkms/secrets/consensus.key     # the reslice is `creates:`-guarded (§7):
+                                      # without this, the OLD key is kept silently
+#    b) reusing the same consensus key on the new chain? skip step 4 entirely.
+
+# 5. Re-render tmkms.toml + reslice, with the new chain id
+ansible-playbook -i inventory.yaml setup-tmkms.yml \
+  -e target=gno-validator -e tmkms_chain_id="${NEW_CHAIN}"
+
+docker compose up -d
+```
+
+No Ansible on that host? Steps 1-4 are unchanged; for step 5 patch the three
+occurrences by hand and reslice:
+
+```bash
+sed -i "s/\"<oldchain>\"/\"${NEW_CHAIN}\"/g" tmkms/tmkms.toml
+grep -c "${NEW_CHAIN}" tmkms/tmkms.toml    # must print 3
+
+jq -r '.priv_key.value' validator/gnoland-data/secrets/priv_validator_key.json \
+  | base64 -d | head -c 32 | base64 -w0 > tmkms/secrets/consensus.key
+chmod 600 tmkms/secrets/consensus.key
+```
+
+### Procedure — dedicated TCP signer host
+
+Same five items on the signer host (`/root/<gno_dir>/{tmkms.toml,secrets/}`,
+no `tmkms/` prefix — see §9), plus what the transport pins:
+
+- `consensus.key` is **never** resliced locally there: reslice on the
+  validator host and `scp` it over again (§4 step 2) if the identity changed.
+- `addr = "tcp://<peer-id>@<validator-ip>:26659"` — a new deployment means a
+  new `node_key.json`, so the **peer-id changes**. Re-run the role with the
+  new `-e tmkms_validator_peer_id=` / `-e tmkms_validator_ip=`.
+- `kms-identity.key` kept ⇒ `TMKMS_ALLOWED_KMS_PUBKEYS` on the validator is
+  unchanged. Regenerated ⇒ re-derive the pubkey and update it, or the
+  validator rejects the signer.
+
+### Verify
+
+```bash
+jq -r .chain_id validator/genesis.json      # ─┐ the three must be identical
+grep -m1 '^id' tmkms/tmkms.toml             #  │
+grep TMKMS_CHAIN_ID .env                    # ─┘
+
+docker compose logs -f tmkms       # "signed Prevote/Precommit ... at h/r/s"
+docker compose logs -f validator   # "Committed state", height climbing from 1
+```
+
+| Symptom | Cause |
+|---|---|
+| tmkms connects, gnoland never gets a signature, height stuck | stale `consensus_state.json` (step 3 skipped) |
+| tmkms logs a chain-id / unregistered-chain error | one of the 3 `chain_id` occurrences in `tmkms.toml` still points at the old chain, or `TMKMS_CHAIN_ID` disagrees with `genesis.json` |
+| validator absent from the set while tmkms signs happily | old `consensus.key` reused while the new genesis holds a different pubkey (step 4 skipped) |
+| TCP only: signer dials but is rejected | peer-id pin or `TMKMS_ALLOWED_KMS_PUBKEYS` still from the old deployment |
+
+---
 
 ## References
 

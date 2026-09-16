@@ -85,8 +85,16 @@ the right layout on its own (flat, or nested `sentry/`+`validator/` for
 topology has an otel-collector.
 
 For `tmkms-alone` (dedicated signer host), there is no gnoland node at all —
-`deploy-compose.yml` does not apply to it; see §4 instead
-(`setup-tmkms.yml` stages everything needed there).
+`deploy-compose.yml` does not apply to it (its `assert` rejects that target);
+see §4 instead. Note that `setup-tmkms.yml` stages `tmkms.toml`, the
+Dockerfile, `secrets/` and the kms-identity key, but **not**
+`compose/tmkms-alone/docker-compose.yml` — copy that one by hand into the
+same directory as the rendered `tmkms.toml`:
+
+```bash
+scp compose/tmkms-alone/docker-compose.yml \
+  root@<signer-host>:/root/<gno_dir>/tmkms/
+```
 
 ## 3. `.env` and startup
 
@@ -145,6 +153,10 @@ generation/derivation).
    upgrade), clear `gnoland-data/` or not — **never touch**
    `gnoland-data/secrets/` (or `tmkms/secrets/` in tmkms mode) without a
    deliberate backup/key-rotation policy.
+   **New network / new `chain_id` with tmkms** (typically: this directory
+   was copied from the previous testnet): follow `TMKMS.md` §10 — the stale
+   `consensus_state.json` and the three `chain_id` occurrences in
+   `tmkms.toml` must be dealt with, or the validator silently never signs.
 4. `docker compose pull && docker compose up -d`, then `check_status.sh`.
 
 ## 6. Logs and metrics

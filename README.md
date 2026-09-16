@@ -155,6 +155,9 @@ ansible-playbook -i inventory.yaml setup-tmkms.yml \
   -e target=gno-validator -e tmkms_chain_id=<chain-id>
 ```
 
+Reusing an existing tmkms deployment on a **new chain** (directory copied
+from the previous testnet): `TMKMS.md` §10 — chain-bound files to reset.
+
 ### Step 5 — Cold log retention (optional, independent of Alloy)
 
 ```bash
@@ -299,6 +302,23 @@ for a sentry) in `docker-compose.yml`, gnoland secrets
 (`gnoland secrets get`), validator state (`priv_validator_state.json`),
 presence of `gnoland-data/db`+`wal`, `genesis.json` (SHA256), and
 `config.toml`.
+
+### check-missed-blocks.py
+
+**Location:** `tools/check-missed-blocks.py` (runs from any
+machine with access to a gnoland RPC — requires Python 3 and `requests`)
+
+**Usage:**
+```bash
+python3 tools/check-missed-blocks.py <g1-validator-address> \
+  [--blocks 500] [--rpc https://rpc.mainnet.samourai.live]
+```
+
+Walks the last `--blocks` blocks (default 500) and checks, for each height H,
+that the validator's precommit is present in the `last_commit` of block H+1.
+Prints every missed height, then a summary: checked / signed / missed /
+errors and the uptime percentage over the window. One RPC call per block, so
+keep the window reasonable against public endpoints.
 
 ---
 

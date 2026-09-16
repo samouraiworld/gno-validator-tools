@@ -35,8 +35,17 @@ tmkms_node_secrets_dir: "{{ tmkms_node_data_dir }}/secrets"
 
 # --- TCP mode only (tmkms_connection_mode: "tcp") ---------------------------
 # The peer-id pin is mandatory on TCP: an unpinned addr lets tmkms sign for an
-# impostor (see TMKMS.md). Get it with `gnoland secrets get` on the validator
-# host (node_id.id, hex).
+# impostor (see TMKMS.md).
+#
+# /!\ This is the 40-char HEX peer-id, and `gnoland secrets get node_id.id`
+# does NOT return it — that returns the bech32 g1... node id, which is what
+# P2P (persistent_peers / private_peer_ids) uses. The hex peer-id is derived
+# from node_key.json as sha256(pubkey)[:20], on the validator host:
+#
+#   jq -r 'if (.priv_key|type)=="object" then .priv_key.value else .priv_key end' \
+#     gnoland-data/secrets/node_key.json | base64 -d | tail -c 32 | sha256sum | head -c 40
+#
+# (same derivation as tmkms-lab/bootstrap.sh, kept identical on purpose).
 tmkms_validator_peer_id: ""
 # IP of the validator host, reachable from this signer host.
 tmkms_validator_ip: ""
