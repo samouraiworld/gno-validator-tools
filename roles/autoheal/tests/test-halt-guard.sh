@@ -219,14 +219,14 @@ for v in '"01000"' '1000'; do
   if ! healed && ! crashed; then pass "halt_height $v at 1000: no heal"; else fail "halt_height $v at 1000"; fi
 done
 
-# 11. halt_height unreadable (unreachable, ABCI error, non-numeric, too long):
-#     keeps the pre-guard behavior, failure logged.
+# 11. Sentry, halt_height unreadable (unreachable, ABCI error, non-numeric,
+#     too long): keeps the pre-guard behavior, failure logged.
 for v in fail error '"abc"' '"-1000"' '"1234567890123456789"'; do
   reset_case
   set_rpc 1000 false "$v"; run_samples 4
   if healed && ! crashed && grep -q "could not read halt_height" "$WORK/out.log"; then
-    pass "halt_height $v: heals, failure logged"
-  else fail "halt_height $v"; fi
+    pass "sentry, halt_height $v: heals, failure logged"
+  else fail "sentry, halt_height $v"; fi
 done
 
 # 12. halt_min_version unset or not a plain version tag at a halt.
@@ -246,6 +246,25 @@ reset_case
 set_rpc 1000 true '"1000"'; run_samples 4
 if ! healed && ! crashed && [ "$(stuck_count)" = 0 ]; then pass "catching_up at H: no heal"; else fail "catching_up at H"; fi
 
+# 14. Validator, halt_height unreadable: never heals, sample not counted,
+#     one halt-unknown alert per interval.
+VCS_DIR="$WORK/validator-cs"
+render "$VCS_DIR" validator
+cp "$CS_DIR/autoheal.sh" "$VCS_DIR/autoheal.sh"
+cp "$CS_DIR/.env" "$VCS_DIR/.env"
+for v in fail error '"abc"'; do
+  reset_case
+  rm -f "$WORK/state-validator/validator.state"
+  set_rpc 1000 false "$v"
+  for i in 1 2 3 4 5; do
+    "$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1 || echo "check-stuck.sh exited non-zero" >> "$WORK/out.log"
+  done
+  if ! healed && ! crashed && [ "$(jq -r .stuck_count "$WORK/state-validator/validator.state")" = 0 ] \
+    && [ "$(alerts)" = 1 ] && grep -q '"event":"halt-unknown"' "$WEBHOOK_LOG"; then
+    pass "validator, halt_height $v: no heal, one halt-unknown alert"
+  else fail "validator, halt_height $v"; fi
+done
+
 # --- autoheal.sh cases (manual run) ------------------------------------------
 AH_DIR="$WORK/validator"
 render "$AH_DIR" validator
@@ -260,11 +279,15 @@ chmod +x "$AH_DIR/pull-from-s3.sh"
 printf 'WEBHOOK_URL=%s\n' "$FAKE_WEBHOOK_URL" > "$AH_DIR/.env"
 LOCK_FILE="$WORK/state-validator/validator.lock"
 AH_STATE="$WORK/state-validator/validator.state"
-run_ah() {
-  rm -f "$WORK/pull.log" "$LOCK_FILE" "$WORK/out.log" "$WEBHOOK_LOG"
+# Same setup for a sentry (only the halt-query-failure policy differs).
+SAH_DIR="$WORK/sentry-ah"
+render "$SAH_DIR" sentry
+cp "$AH_DIR/pull-from-s3.sh" "$AH_DIR/.env" "$SAH_DIR/"
+run_ah() {  # [dir] (default: validator)
+  rm -f "$WORK/pull.log" "$LOCK_FILE" "$WORK/state-sentry/sentry.lock" "$WORK/out.log" "$WEBHOOK_LOG"
   mkdir -p "$(dirname "$AH_STATE")"
   jq -n '{height: "1000", ts: 0, stuck_count: 3}' > "$AH_STATE"
-  "$AH_DIR/autoheal.sh" > "$WORK/out.log" 2>&1 || true
+  "${1:-$AH_DIR}/autoheal.sh" > "$WORK/out.log" 2>&1 || true
 }
 refused() {
   [ ! -f "$WORK/pull.log" ] && [ ! -f "$LOCK_FILE" ] && [ ! -f "$AH_STATE" ] \
@@ -282,9 +305,19 @@ set_rpc 500 false '"1000"'; run_ah
 if [ -f "$WORK/pull.log" ]; then pass "autoheal.sh not at halt: proceeds to pull"; else fail "autoheal.sh not at halt"; fi
 
 set_rpc 1000 false fail; run_ah
+if refused && grep -q "halt_height unreadable" "$WORK/out.log"; then
+  pass "autoheal.sh validator, halt query fails: refuses"
+else fail "autoheal.sh validator, halt query fails"; fi
+
+set_rpc 1000 false fail; run_ah "$SAH_DIR"
 if [ -f "$WORK/pull.log" ] && grep -q "could not read halt_height" "$WORK/out.log"; then
-  pass "autoheal.sh, halt query fails: proceeds, failure logged"
-else fail "autoheal.sh, halt query fails"; fi
+  pass "autoheal.sh sentry, halt query fails: proceeds, failure logged"
+else fail "autoheal.sh sentry, halt query fails"; fi
+
+set_rpc 1000 false '"1000"'; run_ah "$SAH_DIR"
+if [ ! -f "$WORK/pull.log" ] && grep -q "restore-skipped" "$WORK/out.log"; then
+  pass "autoheal.sh sentry at H: refuses"
+else fail "autoheal.sh sentry at H"; fi
 
 rm -f "$WORK/rpc/status.json"; run_ah
 if [ -f "$WORK/pull.log" ] && grep -q "voted-halt guard skipped" "$WORK/out.log"; then

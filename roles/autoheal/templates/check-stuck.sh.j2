@@ -68,6 +68,17 @@ elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
       alert "voted-halt-wait" "${NODE_TYPE}: frozen at voted halt $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>}. Auto-heal will not restore at this height: upgrade the node image. If the network is already past height $((HALT_HEIGHT + 1)), this node is stuck and needs manual action."
       HALT_ALERT_TS="$NOW"
     fi
+  elif [ "$HALT_RC" -eq 2 ] && [ "$NODE_TYPE" = "validator" ]; then
+    # Validator: a restore during a whole-network halt can deadlock consensus
+    # (tmkms step regression), so an unknown halt state is never a reason to
+    # restore. Do not count the sample; alert at most every HALT_ALERT_INTERVAL.
+    echo "⚠️  could not read halt_height from $RPC — validator: cannot rule out a voted halt, sample not counted, no action."
+    STUCK_COUNT=0
+    NOW="$(date -u +%s)"
+    if [ $((NOW - HALT_ALERT_TS)) -ge "$HALT_ALERT_INTERVAL" ]; then
+      alert "halt-unknown" "${NODE_TYPE}: height frozen at $HEIGHT and halt_height unreadable from the local RPC. Auto-heal does not restore a validator without knowing the halt state: check the node manually."
+      HALT_ALERT_TS="$NOW"
+    fi
   else
     HALT_ALERT_TS=0
     if [ "$HALT_RC" -eq 2 ]; then

@@ -46,8 +46,11 @@ action and sends a `voted-halt-wait` webhook alert (first time, then every
 `autoheal_halt_alert_interval_seconds`, default 1 h). `autoheal.sh` runs the
 same check first and refuses to restore (alert `restore-skipped`), so a manual
 run is guarded too; use `restore.sh` directly if a restore at a halt is really
-intended. If the `halt_height` query fails, both scripts log it and keep the
-pre-guard behavior. Upgrade the node as usual (`DEPLOYMENT_RUNBOOK.md` §5);
+intended. If the `halt_height` query fails, the halt state is unknown: on the
+**validator** no restore happens (the sample is not counted, `halt-unknown`
+alert at most every interval, `autoheal.sh` refuses), because a restore during
+a whole-network halt can deadlock consensus; on the **sentry** both scripts log
+it and keep the pre-guard behavior (restore). Upgrade the node as usual (`DEPLOYMENT_RUNBOOK.md` §5);
 detection resumes normally once the node moves past H+1. Limitation:
 `halt_height` stays set on chain after the network resumes, and the guard does
 not compare with the network head, so a node that later freezes at exactly H
