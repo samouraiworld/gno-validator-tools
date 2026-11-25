@@ -49,12 +49,22 @@ verify_stopped() {
 # Defense in depth: check-stuck.sh never calls this script at a voted halt,
 # but a manual run must not restore either. Runs before the lock file is
 # written, so a refused run does not start the cooldown, and it resets the
-# stuck counter so check-stuck.sh does not re-exec this script every sample.
+# stuck counter (keeping the alert rate-limit state) so check-stuck.sh does
+# not re-exec this script every sample.
 # When halt_height cannot be read, a validator refuses (a restore during a
 # whole-network halt can deadlock consensus) and a sentry keeps the pre-guard
 # behavior (restore). When the node RPC is down (no height), the guard is
 # skipped as before: check-stuck.sh never triggers on a DOWN node, so this
 # is only a deliberate manual run.
+reset_stuck_count() {
+  local state="$STATE_DIR/${NODE_TYPE}.state"
+  if [ -f "$state" ] && jq '.stuck_count = 0' "$state" > "$state.tmp" 2>/dev/null; then
+    mv "$state.tmp" "$state"
+  else
+    rm -f "$state.tmp" "$state"
+  fi
+}
+
 STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
 HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
 if [ -z "$HEIGHT" ]; then
@@ -64,11 +74,11 @@ else
   at_voted_halt "$HEIGHT" || HALT_RC=$?
   if [ "$HALT_RC" -eq 0 ]; then
     alert "restore-skipped" "${NODE_TYPE}: voted halt at $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>} — refusing to restore a snapshot. Upgrade the node image instead."
-    rm -f "$STATE_DIR/${NODE_TYPE}.state"
+    reset_stuck_count
     exit 0
   elif [ "$HALT_RC" -eq 2 ] && [ "$NODE_TYPE" = "validator" ]; then
     alert "restore-skipped" "${NODE_TYPE}: halt_height unreadable from $RPC (height=$HEIGHT) — refusing to restore a validator without knowing the halt state. Check the node manually (restore.sh for a deliberate restore)."
-    rm -f "$STATE_DIR/${NODE_TYPE}.state"
+    reset_stuck_count
     exit 0
   elif [ "$HALT_RC" -eq 2 ]; then
     echo "⚠️  could not read halt_height from $RPC — cannot rule out a voted halt, continuing."

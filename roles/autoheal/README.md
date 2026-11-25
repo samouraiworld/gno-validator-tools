@@ -48,10 +48,17 @@ same check first and refuses to restore (alert `restore-skipped`), so a manual
 run is guarded too; use `restore.sh` directly if a restore at a halt is really
 intended. If the `halt_height` query fails, the halt state is unknown: on the
 **validator** no restore happens (the sample is not counted, `halt-unknown`
-alert at most every interval, `autoheal.sh` refuses), because a restore during
-a whole-network halt can deadlock consensus; on the **sentry** both scripts log
-it and keep the pre-guard behavior (restore). Upgrade the node as usual (`DEPLOYMENT_RUNBOOK.md` §5);
-detection resumes normally once the node moves past H+1. Limitation:
+alert at most every interval, `autoheal.sh` refuses), because a restore during a
+whole-network halt can deadlock consensus; on the **sentry** both scripts log
+it and keep the pre-guard behavior (restore). Note that `abci_query` shares
+the in-process ABCI lock with block execution: a validator whose application
+hangs mid-block answers `/status` but not `abci_query`, so it is never
+restored automatically; the `halt-unknown` alert is the signal. One exception
+on both node types: a manual `./autoheal.sh` run while `/status` itself is
+unreachable skips the guard and restores, as before (the timer never triggers
+on a DOWN node, so this is always a deliberate operator action). Upgrade the
+node as usual (`DEPLOYMENT_RUNBOOK.md` §5); detection resumes normally once
+the node moves past H+1. Limitation:
 `halt_height` stays set on chain after the network resumes, and the guard does
 not compare with the network head, so a node that later freezes at exactly H
 or H+1 is not restored automatically; the hourly alert is the signal. Tests: `roles/autoheal/tests/test-halt-guard.sh` (fake RPC, no

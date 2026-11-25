@@ -265,6 +265,60 @@ for v in fail error '"abc"'; do
   else fail "validator, halt_height $v"; fi
 done
 
+# 15. Validator, query alternates between failing and "no halt" while frozen:
+#     still one halt-unknown alert per interval (no flood).
+reset_case
+rm -f "$WORK/state-validator/validator.state"
+for v in fail null fail null fail null; do
+  set_rpc 1000 false "$v"
+  "$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1 || echo "check-stuck.sh exited non-zero" >> "$WORK/out.log"
+done
+if ! crashed && [ "$(grep -c '"event":"halt-unknown"' "$WEBHOOK_LOG")" = 1 ]; then
+  pass "validator, flapping halt query: one halt-unknown alert"
+else fail "validator, flapping halt query"; fi
+
+# 16. Each alert type has its own rate limit (both transition orders).
+reset_case
+rm -f "$WORK/state-validator/validator.state"
+set_rpc 1000 false fail
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+set_rpc 1000 false '"1000"'
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+if grep -q '"event":"halt-unknown"' "$WEBHOOK_LOG" && grep -q '"event":"voted-halt-wait"' "$WEBHOOK_LOG"; then
+  pass "voted-halt-wait not delayed by an earlier halt-unknown"
+else fail "voted-halt-wait after halt-unknown"; fi
+reset_case
+rm -f "$WORK/state-validator/validator.state"
+set_rpc 1000 false '"1000"'
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+set_rpc 1000 false fail
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+if grep -q '"event":"voted-halt-wait"' "$WEBHOOK_LOG" && grep -q '"event":"halt-unknown"' "$WEBHOOK_LOG"; then
+  pass "halt-unknown not delayed by an earlier voted-halt-wait"
+else fail "halt-unknown after voted-halt-wait"; fi
+
+# 17. Validator: an unknown sample keeps earlier confirmed stuck samples.
+reset_case
+mkdir -p "$WORK/state-validator"
+jq -n '{height: "1000", ts: 0, stuck_count: 2}' > "$WORK/state-validator/validator.state"
+set_rpc 1000 false fail
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+kept="$(jq -r .stuck_count "$WORK/state-validator/validator.state")"
+set_rpc 1000 false null
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+if [ "$kept" = 2 ] && healed; then pass "validator: unknown sample keeps the counter, next no-halt sample heals"
+else fail "validator: counter kept on unknown sample"; fi
+
+# 18. Malformed or leading-zero values in the state file do not crash.
+reset_case
+mkdir -p "$(dirname "$STATE_FILE")"
+echo '{"height": "1000", "ts": 0, "stuck_count": "08", "halt_alert_ts": "09", "unknown_alert_ts": "x"}' > "$STATE_FILE"
+set_rpc 1000 false '"1000"'; run_cs
+if ! crashed && [ "$(alerts)" = 1 ]; then pass "leading-zero / malformed state values: no crash"
+else fail "malformed state values"; fi
+
 # --- autoheal.sh cases (manual run) ------------------------------------------
 AH_DIR="$WORK/validator"
 render "$AH_DIR" validator
@@ -286,16 +340,17 @@ cp "$AH_DIR/pull-from-s3.sh" "$AH_DIR/.env" "$SAH_DIR/"
 run_ah() {  # [dir] (default: validator)
   rm -f "$WORK/pull.log" "$LOCK_FILE" "$WORK/state-sentry/sentry.lock" "$WORK/out.log" "$WEBHOOK_LOG"
   mkdir -p "$(dirname "$AH_STATE")"
-  jq -n '{height: "1000", ts: 0, stuck_count: 3}' > "$AH_STATE"
+  jq -n '{height: "1000", ts: 0, stuck_count: 3, halt_alert_ts: 0, unknown_alert_ts: 123}' > "$AH_STATE"
   "${1:-$AH_DIR}/autoheal.sh" > "$WORK/out.log" 2>&1 || true
 }
 refused() {
-  [ ! -f "$WORK/pull.log" ] && [ ! -f "$LOCK_FILE" ] && [ ! -f "$AH_STATE" ] \
+  [ ! -f "$WORK/pull.log" ] && [ ! -f "$LOCK_FILE" ] && [ "$(jq -r .stuck_count "$AH_STATE")" = 0 ] \
+    && [ "$(jq -r .unknown_alert_ts "$AH_STATE")" = 123 ] \
     && grep -q "restore-skipped" "$WORK/out.log" && grep -q '"event":"restore-skipped"' "$WEBHOOK_LOG"
 }
 
 set_rpc 1000 false '"1000"'; run_ah
-if refused; then pass "autoheal.sh at H: refuses, alerts, no pull, no lock, counter reset"
+if refused; then pass "autoheal.sh at H: refuses, alerts, no pull, no lock, counter reset, alert state kept"
 else fail "autoheal.sh at H"; fi
 
 set_rpc 1001 false '"1000"'; run_ah
