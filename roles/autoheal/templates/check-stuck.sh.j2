@@ -79,7 +79,9 @@ elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
     # Validator: a restore during a whole-network halt can deadlock consensus
     # (tmkms step regression), so an unknown halt state is never a reason to
     # restore. The sample is not counted (earlier confirmed stuck samples are
-    # kept); alert at most every HALT_ALERT_INTERVAL.
+    # kept); alert at most every HALT_ALERT_INTERVAL. Never trigger from this
+    # branch, even if a count >= threshold survived a failed earlier restore.
+    NO_TRIGGER=1
     echo "⚠️  could not read halt_height from $RPC — validator: cannot rule out a voted halt, sample not counted (stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD), no action."
     NOW="$(date -u +%s)"
     if [ $((NOW - UNKNOWN_ALERT_TS)) -ge "$HALT_ALERT_INTERVAL" ]; then
@@ -105,7 +107,7 @@ jq -n --arg h "$HEIGHT" --arg ts "$(date -u +%s)" --arg c "$STUCK_COUNT" \
   '{height: $h, ts: ($ts|tonumber), stuck_count: ($c|tonumber),
     halt_alert_ts: ($a|tonumber), unknown_alert_ts: ($u|tonumber)}' > "$STATE_FILE"
 
-if [ "$STUCK_COUNT" -ge "$STUCK_THRESHOLD" ]; then
+if [ "$STUCK_COUNT" -ge "$STUCK_THRESHOLD" ] && [ -z "${NO_TRIGGER:-}" ]; then
   echo "🚨 stuck for $STUCK_COUNT consecutive checks (>= $STUCK_THRESHOLD) — triggering autoheal."
-  exec "$(dirname "$0")/autoheal.sh"
+  AUTOHEAL_FROM_CHECK=1 exec "$(dirname "$0")/autoheal.sh"
 fi

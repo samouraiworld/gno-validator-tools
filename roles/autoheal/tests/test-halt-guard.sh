@@ -311,6 +311,31 @@ set_rpc 1000 false null
 if [ "$kept" = 2 ] && healed; then pass "validator: unknown sample keeps the counter, next no-halt sample heals"
 else fail "validator: counter kept on unknown sample"; fi
 
+# 17b. Validator: a count >= threshold left by a failed restore does not
+#      trigger on an unknown sample.
+reset_case
+jq -n '{height: "1000", ts: 0, stuck_count: 3}' > "$WORK/state-validator/validator.state"
+set_rpc 1000 false fail
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1
+if ! healed; then pass "validator: stale count >= threshold, unknown sample: no trigger"
+else fail "validator: stale count triggers on unknown sample"; fi
+
+# 17c. Sentry: a leading-zero stuck_count is read as decimal ("08" -> 9 -> heal).
+reset_case
+mkdir -p "$(dirname "$STATE_FILE")"
+echo '{"height": "1000", "ts": 0, "stuck_count": "08"}' > "$STATE_FILE"
+set_rpc 1000 false null; run_cs
+if healed && ! crashed && grep -q "stuck_count=9/3" "$WORK/out.log"; then pass "leading-zero stuck_count read as decimal"
+else fail "leading-zero stuck_count"; fi
+
+# 17d. Validator: malformed unknown_alert_ts on an unknown sample: no crash, alert.
+reset_case
+echo '{"height": "1000", "ts": 0, "stuck_count": 0, "unknown_alert_ts": "x"}' > "$WORK/state-validator/validator.state"
+set_rpc 1000 false fail
+"$VCS_DIR/check-stuck.sh" >> "$WORK/out.log" 2>&1 || echo "check-stuck.sh exited non-zero" >> "$WORK/out.log"
+if ! crashed && [ "$(alerts)" = 1 ]; then pass "validator: malformed unknown_alert_ts handled"
+else fail "validator: malformed unknown_alert_ts"; fi
+
 # 18. Malformed or leading-zero values in the state file do not crash.
 reset_case
 mkdir -p "$(dirname "$STATE_FILE")"
@@ -373,6 +398,14 @@ set_rpc 1000 false '"1000"'; run_ah "$SAH_DIR"
 if [ ! -f "$WORK/pull.log" ] && grep -q "restore-skipped" "$WORK/out.log"; then
   pass "autoheal.sh sentry at H: refuses"
 else fail "autoheal.sh sentry at H"; fi
+
+rm -f "$WORK/rpc/status.json"
+rm -f "$WORK/pull.log" "$LOCK_FILE" "$WORK/out.log" "$WEBHOOK_LOG"
+jq -n '{height: "1000", ts: 0, stuck_count: 3, halt_alert_ts: 0, unknown_alert_ts: 123}' > "$AH_STATE"
+AUTOHEAL_FROM_CHECK=1 "$AH_DIR/autoheal.sh" > "$WORK/out.log" 2>&1 || true
+if refused && grep -q "height unreadable" "$WORK/out.log"; then
+  pass "autoheal.sh validator from check-stuck, RPC down: refuses"
+else fail "autoheal.sh validator from check-stuck, RPC down"; fi
 
 rm -f "$WORK/rpc/status.json"; run_ah
 if [ -f "$WORK/pull.log" ] && grep -q "voted-halt guard skipped" "$WORK/out.log"; then

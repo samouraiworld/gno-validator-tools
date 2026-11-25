@@ -54,8 +54,11 @@ verify_stopped() {
 # When halt_height cannot be read, a validator refuses (a restore during a
 # whole-network halt can deadlock consensus) and a sentry keeps the pre-guard
 # behavior (restore). When the node RPC is down (no height), the guard is
-# skipped as before: check-stuck.sh never triggers on a DOWN node, so this
-# is only a deliberate manual run.
+# skipped as before for a deliberate manual run; when started by
+# check-stuck.sh (AUTOHEAL_FROM_CHECK=1) a validator refuses instead, since
+# the halt state is unknown.
+# Sets stuck_count to 0 and keeps the alert rate-limit timestamps. If the
+# state file cannot be rewritten it is removed (alerts may then repeat early).
 reset_stuck_count() {
   local state="$STATE_DIR/${NODE_TYPE}.state"
   if [ -f "$state" ] && jq '.stuck_count = 0' "$state" > "$state.tmp" 2>/dev/null; then
@@ -67,7 +70,11 @@ reset_stuck_count() {
 
 STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
 HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
-if [ -z "$HEIGHT" ]; then
+if [ -z "$HEIGHT" ] && [ -n "${AUTOHEAL_FROM_CHECK:-}" ] && [ "$NODE_TYPE" = "validator" ]; then
+  alert "restore-skipped" "${NODE_TYPE}: node height unreadable from $RPC right after detection — refusing to restore a validator without knowing the halt state. Check the node manually."
+  reset_stuck_count
+  exit 0
+elif [ -z "$HEIGHT" ]; then
   echo "⚠️  could not read the node height from $RPC — voted-halt guard skipped."
 else
   HALT_RC=0

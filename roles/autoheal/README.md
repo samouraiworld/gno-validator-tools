@@ -55,8 +55,8 @@ the in-process ABCI lock with block execution: a validator whose application
 hangs mid-block answers `/status` but not `abci_query`, so it is never
 restored automatically; the `halt-unknown` alert is the signal. One exception
 on both node types: a manual `./autoheal.sh` run while `/status` itself is
-unreachable skips the guard and restores, as before (the timer never triggers
-on a DOWN node, so this is always a deliberate operator action). Upgrade the
+unreachable skips the guard and restores, as before (a deliberate operator
+action; when started by the timer, a validator refuses in that case). Upgrade the
 node as usual (`DEPLOYMENT_RUNBOOK.md` §5); detection resumes normally once
 the node moves past H+1. Limitation:
 `halt_height` stays set on chain after the network resumes, and the guard does
