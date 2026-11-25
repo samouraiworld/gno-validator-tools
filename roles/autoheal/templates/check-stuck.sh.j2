@@ -8,10 +8,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+NODE_TYPE="{{ autoheal_node_type }}"
 RPC="http://{{ autoheal_rpc_bind }}"
 STATE_DIR="{{ autoheal_state_dir }}"
 STATE_FILE="$STATE_DIR/{{ autoheal_node_type }}.state"
 STUCK_THRESHOLD="{{ autoheal_stuck_threshold }}"
+HALT_ALERT_INTERVAL="{{ autoheal_halt_alert_interval_seconds }}"
+
+# WEBHOOK_URL for the voted-halt alert.
+[ -f .env ] && set -a && . ./.env && set +a
 
 mkdir -p "$STATE_DIR"
 
@@ -34,7 +39,9 @@ STUCK_COUNT=0
 if [ -f "$STATE_FILE" ]; then
   PREV_HEIGHT="$(jq -r '.height // empty' "$STATE_FILE" 2>/dev/null || true)"
   STUCK_COUNT="$(jq -r '.stuck_count // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
+  HALT_ALERT_TS="$(jq -r '.halt_alert_ts // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
 fi
+[[ "${HALT_ALERT_TS:-}" =~ ^[0-9]+$ ]] || HALT_ALERT_TS=0
 
 {% include 'halt-guard.sh.inc.j2' %}
 
@@ -48,7 +55,17 @@ elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
   if [ "$HALT_RC" -eq 0 ]; then
     echo "⏸️  voted halt at $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>} — not stuck, no action."
     STUCK_COUNT=0
+    # halt_height stays set on chain after the network resumes, so a node
+    # frozen at H or H+1 later on is never restored automatically. Alert on
+    # the first halt sample and then every HALT_ALERT_INTERVAL seconds, so a
+    # human sees it either way.
+    NOW="$(date -u +%s)"
+    if [ $((NOW - HALT_ALERT_TS)) -ge "$HALT_ALERT_INTERVAL" ]; then
+      alert "voted-halt-wait" "${NODE_TYPE}: frozen at voted halt $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>}. Auto-heal will not restore at this height: upgrade the node image. If the network is already past height $((HALT_HEIGHT + 1)), this node is stuck and needs manual action."
+      HALT_ALERT_TS="$NOW"
+    fi
   else
+    HALT_ALERT_TS=0
     if [ "$HALT_RC" -eq 2 ]; then
       echo "⚠️  could not read halt_height from $RPC — cannot rule out a voted halt, counting this sample as stuck."
     fi
@@ -58,10 +75,11 @@ elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
 else
   echo "✅ height=$HEIGHT, progressing normally."
   STUCK_COUNT=0
+  HALT_ALERT_TS=0
 fi
 
-jq -n --arg h "$HEIGHT" --arg ts "$(date -u +%s)" --arg c "$STUCK_COUNT" \
-  '{height: $h, ts: ($ts|tonumber), stuck_count: ($c|tonumber)}' > "$STATE_FILE"
+jq -n --arg h "$HEIGHT" --arg ts "$(date -u +%s)" --arg c "$STUCK_COUNT" --arg a "$HALT_ALERT_TS" \
+  '{height: $h, ts: ($ts|tonumber), stuck_count: ($c|tonumber), halt_alert_ts: ($a|tonumber)}' > "$STATE_FILE"
 
 if [ "$STUCK_COUNT" -ge "$STUCK_THRESHOLD" ]; then
   echo "🚨 stuck for $STUCK_COUNT consecutive checks (>= $STUCK_THRESHOLD) — triggering autoheal."

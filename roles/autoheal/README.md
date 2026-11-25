@@ -41,13 +41,17 @@ RPC (`abci_query path="params/node:p:halt_height"`). When the frozen height is
 H (node still on the old image: gno v1.8.0 commits H, saves H+1, then panics
 in BeginBlock(H+1), so `/status` reports H) or H+1 (node already on the new
 image, waiting for quorum after replaying H+1), it logs `voted halt at H,
-waiting for upgrade to <halt_min_version>`, resets the counter and takes no
-action. `autoheal.sh` runs the same check first and refuses to restore (alert
-`restore-skipped`), so a manual run is guarded too; use `restore.sh` directly
-if a restore at a halt is really intended. If the `halt_height` query fails,
-both scripts log it and keep the pre-guard behavior. Upgrade the node as usual
-(`DEPLOYMENT_RUNBOOK.md` §5); detection resumes normally once the chain moves
-past H+1. Tests: `roles/autoheal/tests/test-halt-guard.sh` (fake RPC, no
+waiting for upgrade to <halt_min_version>`, resets the counter, takes no
+action and sends a `voted-halt-wait` webhook alert (first time, then every
+`autoheal_halt_alert_interval_seconds`, default 1 h). `autoheal.sh` runs the
+same check first and refuses to restore (alert `restore-skipped`), so a manual
+run is guarded too; use `restore.sh` directly if a restore at a halt is really
+intended. If the `halt_height` query fails, both scripts log it and keep the
+pre-guard behavior. Upgrade the node as usual (`DEPLOYMENT_RUNBOOK.md` §5);
+detection resumes normally once the node moves past H+1. Limitation:
+`halt_height` stays set on chain after the network resumes, and the guard does
+not compare with the network head, so a node that later freezes at exactly H
+or H+1 is not restored automatically; the hourly alert is the signal. Tests: `roles/autoheal/tests/test-halt-guard.sh` (fake RPC, no
 node needed; needs `jq` and Python `jinja2`, runs `shellcheck` if installed).
 
 ## Anti-double-sign (validator)

@@ -1,4 +1,19 @@
-# --- Voted-halt guard (included by check-stuck.sh and autoheal.sh) ------------
+# --- Shared helpers (included by check-stuck.sh and autoheal.sh) --------------
+# Needs NODE_TYPE and RPC set by the including script; WEBHOOK_URL comes from
+# the host's .env (optional).
+
+alert() {
+  local event="$1" message="$2"
+  echo "[ALERT] $event: $message"
+  if [ -n "${WEBHOOK_URL:-}" ]; then
+    curl -s --max-time 5 -X POST "$WEBHOOK_URL" \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg n "$NODE_TYPE" --arg e "$event" --arg m "$message" \
+            '{node:$n, event:$e, message:$m}')" >/dev/null 2>&1 || true
+  fi
+}
+
+# --- Voted-halt guard ----------------------------------------------------------
 # A GovDAO-voted chain halt (on-chain param node:p:halt_height = H) stops EVERY
 # node of the network on purpose until operators switch to the upgraded image
 # (param node:p:halt_min_version). Such a node looks exactly like a stuck one
@@ -43,8 +58,9 @@ at_voted_halt() {
   if [ -z "$HALT_HEIGHT" ]; then
     return 1
   fi
-  [[ "$HALT_HEIGHT" =~ ^[0-9]+$ ]] || return 2
-  [[ "$height" =~ ^[0-9]+$ ]] || return 2
+  # At most 18 digits: bash arithmetic is int64 and would wrap silently.
+  [[ "$HALT_HEIGHT" =~ ^[0-9]{1,18}$ ]] || return 2
+  [[ "$height" =~ ^[0-9]{1,18}$ ]] || return 2
   HALT_HEIGHT=$((10#$HALT_HEIGHT))
   height=$((10#$height))
   if [ "$HALT_HEIGHT" -eq 0 ]; then
@@ -54,5 +70,10 @@ at_voted_halt() {
     return 1
   fi
   HALT_MIN_VERSION="$(query_node_param halt_min_version)" || HALT_MIN_VERSION=""
+  # Chain-controlled text that ends up in logs and webhook messages: accept a
+  # plain version tag only.
+  if [ -n "$HALT_MIN_VERSION" ] && ! [[ "$HALT_MIN_VERSION" =~ ^[0-9A-Za-z._+-]{1,64}$ ]]; then
+    HALT_MIN_VERSION="<invalid halt_min_version>"
+  fi
   return 0
 }
