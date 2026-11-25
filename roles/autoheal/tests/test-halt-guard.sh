@@ -74,7 +74,7 @@ case "$url" in
   "http://127.0.0.1:26657/status") f="$FAKE_RPC/status.json" ;;
   'http://127.0.0.1:26657/abci_query?path=%22params/node:p:halt_height%22') f="$FAKE_RPC/halt_height.json" ;;
   'http://127.0.0.1:26657/abci_query?path=%22params/node:p:halt_min_version%22') f="$FAKE_RPC/halt_min_version.json" ;;
-  "$WEBHOOK_URL") printf '%s' "$data" | jq -c . >> "$WEBHOOK_LOG"; exit 0 ;;
+  "$FAKE_WEBHOOK_URL") printf '%s' "$data" | jq -c . >> "$WEBHOOK_LOG"; exit 0 ;;
   *) echo "unexpected curl URL: $url" >> "$WEBHOOK_LOG.unexpected"; exit 22 ;;
 esac
 [ -f "$f" ] || exit 7
@@ -87,7 +87,10 @@ exit 1
 SH
 chmod +x "$WORK/bin/curl" "$WORK/bin/docker"
 export PATH="$WORK/bin:$PATH"
-export WEBHOOK_URL="http://webhook.test/hook"
+# The scripts must read WEBHOOK_URL from the .env next to them, not from the
+# environment: unset it here and write it into each rendered dir's .env.
+unset WEBHOOK_URL
+export FAKE_WEBHOOK_URL="http://webhook.test/hook"
 export WEBHOOK_LOG="$WORK/webhook.log"
 
 status_json() {  # height catching_up
@@ -128,6 +131,7 @@ cat > "$CS_DIR/autoheal.sh" <<SH
 echo "AUTOHEAL TRIGGERED" >> "$WORK/heal.log"
 SH
 chmod +x "$CS_DIR/autoheal.sh"
+printf 'SCW_ACCESS_KEY=x\nWEBHOOK_URL="%s"\n' "$FAKE_WEBHOOK_URL" > "$CS_DIR/.env"
 STATE_FILE="$WORK/state-sentry/sentry.state"
 
 reset_case() { rm -f "$WORK/heal.log" "$STATE_FILE" "$WEBHOOK_LOG" "$WORK/out.log"; }
@@ -253,6 +257,7 @@ echo "PULL CALLED" >> "$WORK/pull.log"
 exit 1
 SH
 chmod +x "$AH_DIR/pull-from-s3.sh"
+printf 'WEBHOOK_URL=%s\n' "$FAKE_WEBHOOK_URL" > "$AH_DIR/.env"
 LOCK_FILE="$WORK/state-validator/validator.lock"
 AH_STATE="$WORK/state-validator/validator.state"
 run_ah() {

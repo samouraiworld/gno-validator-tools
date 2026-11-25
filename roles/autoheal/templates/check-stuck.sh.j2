@@ -15,8 +15,12 @@ STATE_FILE="$STATE_DIR/{{ autoheal_node_type }}.state"
 STUCK_THRESHOLD="{{ autoheal_stuck_threshold }}"
 HALT_ALERT_INTERVAL="{{ autoheal_halt_alert_interval_seconds }}"
 
-# WEBHOOK_URL for the voted-halt alert.
-[ -f .env ] && set -a && . ./.env && set +a
+# WEBHOOK_URL for the voted-halt alert. Read only that key from .env (not a
+# full `source`): a broken .env must not stop detection.
+if [ -f .env ]; then
+  ENV_WEBHOOK_URL="$(sed -n 's/^WEBHOOK_URL=//p' .env 2>/dev/null | tail -n 1 | sed -e "s/^[\"']//" -e "s/[\"']\$//" || true)"
+  WEBHOOK_URL="${ENV_WEBHOOK_URL:-${WEBHOOK_URL:-}}"
+fi
 
 mkdir -p "$STATE_DIR"
 

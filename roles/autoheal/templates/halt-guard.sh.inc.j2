@@ -37,7 +37,7 @@ query_node_param() {
   local name="$1" resp data
   resp="$(curl -s --max-time 5 "$RPC/abci_query?path=%22params/node:p:${name}%22" 2>/dev/null)" || return 1
   [ -n "$resp" ] || return 1
-  jq -e '.result.response.ResponseBase | type == "object" and .Error == null' \
+  jq -e '.result.response.ResponseBase | type == "object" and has("Data") and .Error == null' \
     >/dev/null 2>&1 <<<"$resp" || return 1
   data="$(jq -r '.result.response.ResponseBase.Data // empty' <<<"$resp" 2>/dev/null)" || return 1
   if [ -z "$data" ]; then
