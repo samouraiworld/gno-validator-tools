@@ -1,0 +1,58 @@
+# --- Voted-halt guard (included by check-stuck.sh and autoheal.sh) ------------
+# A GovDAO-voted chain halt (on-chain param node:p:halt_height = H) stops EVERY
+# node of the network on purpose until operators switch to the upgraded image
+# (param node:p:halt_min_version). Such a node looks exactly like a stuck one
+# (height frozen, catching_up=false), but restoring a snapshot would only
+# restart the old image, and on a tmkms validator a restore during a
+# whole-network halt can deadlock consensus (see the role README).
+#
+# Height reported by /status at a voted halt (gno v1.8.0):
+#   - H on a node still running the old image: EndBlock(H) arms the halt,
+#     block H+1 is saved to the block store, then BeginBlock(H+1) panics and
+#     consensus stops. ApplyBlock(H+1) never completes, so /status (consensus
+#     last height) stays at H.
+#   - H+1 on a node already restarted on the upgraded image: the startup
+#     handshake replays the saved block H+1, then the node waits for quorum.
+# gnoland-1 shows this pattern at the v1.8.0 halt (H=1651500): the block-time
+# gap sits between blocks H+1 and H+2.
+
+# Prints the decoded value of node param $1 ("" when the param is unset).
+# Returns non-zero when the query fails or the response is malformed.
+query_node_param() {
+  local name="$1" resp data
+  resp="$(curl -s --max-time 5 "$RPC/abci_query?path=%22params/node:p:${name}%22" 2>/dev/null)" || return 1
+  [ -n "$resp" ] || return 1
+  jq -e '.result.response.ResponseBase | type == "object" and .Error == null' \
+    >/dev/null 2>&1 <<<"$resp" || return 1
+  data="$(jq -r '.result.response.ResponseBase.Data // empty' <<<"$resp" 2>/dev/null)" || return 1
+  if [ -z "$data" ]; then
+    return 0
+  fi
+  printf '%s' "$data" | base64 -d 2>/dev/null | jq -r '. // empty' 2>/dev/null
+}
+
+# at_voted_halt HEIGHT
+# Returns 0 when HEIGHT is H or H+1 of a configured voted halt (sets
+# HALT_HEIGHT and HALT_MIN_VERSION), 1 when it is not, 2 when halt_height
+# cannot be read (callers keep their pre-guard behavior).
+at_voted_halt() {
+  local height="$1"
+  HALT_HEIGHT=""
+  HALT_MIN_VERSION=""
+  HALT_HEIGHT="$(query_node_param halt_height)" || return 2
+  if [ -z "$HALT_HEIGHT" ]; then
+    return 1
+  fi
+  [[ "$HALT_HEIGHT" =~ ^[0-9]+$ ]] || return 2
+  [[ "$height" =~ ^[0-9]+$ ]] || return 2
+  HALT_HEIGHT=$((10#$HALT_HEIGHT))
+  height=$((10#$height))
+  if [ "$HALT_HEIGHT" -eq 0 ]; then
+    return 1
+  fi
+  if [ "$height" -ne "$HALT_HEIGHT" ] && [ "$height" -ne $((HALT_HEIGHT + 1)) ]; then
+    return 1
+  fi
+  HALT_MIN_VERSION="$(query_node_param halt_min_version)" || HALT_MIN_VERSION=""
+  return 0
+}

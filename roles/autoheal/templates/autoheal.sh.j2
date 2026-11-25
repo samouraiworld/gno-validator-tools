@@ -55,6 +55,27 @@ verify_stopped() {
   done
 }
 
+{% include 'halt-guard.sh.inc.j2' %}
+
+# Defense in depth: check-stuck.sh never calls this script at a voted halt,
+# but a manual run must not restore either. Runs before the lock file is
+# written, so a refused run does not start the cooldown. When the height or
+# halt_height cannot be read, keep the pre-guard behavior (restore).
+STATUS="$(curl -s --max-time 5 "$RPC/status" 2>/dev/null || true)"
+HEIGHT="$(echo "$STATUS" | jq -r '.result.sync_info.latest_block_height // empty' 2>/dev/null || true)"
+if [ -z "$HEIGHT" ]; then
+  echo "⚠️  could not read the node height from $RPC — voted-halt guard skipped."
+else
+  HALT_RC=0
+  at_voted_halt "$HEIGHT" || HALT_RC=$?
+  if [ "$HALT_RC" -eq 0 ]; then
+    alert "restore-skipped" "${NODE_TYPE}: voted halt at $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>} — refusing to restore a snapshot. Upgrade the node image instead."
+    exit 0
+  elif [ "$HALT_RC" -eq 2 ]; then
+    echo "⚠️  could not read halt_height from $RPC — cannot rule out a voted halt, continuing."
+  fi
+fi
+
 # --- Anti-flapping ------------------------------------------------------------
 if [ -f "$LOCK_FILE" ]; then
   LOCK_TS="$(cat "$LOCK_FILE" 2>/dev/null || echo 0)"

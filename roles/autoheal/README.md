@@ -31,6 +31,25 @@ A node whose RPC is unreachable is treated as DOWN, not stuck, and never
 triggers an auto-restore — a container that won't start needs investigation,
 not a data restore.
 
+**GovDAO-voted chain halt.** A halt voted on chain (param
+`node:p:halt_height` = H, with the required image in `node:p:halt_min_version`)
+stops every node of the network on purpose until operators upgrade. Such a node
+looks stuck, but a restore would only restart the old image, and on a
+validator it is the whole-network-halt case of the limitation below. Before
+counting a stuck sample, `check-stuck.sh` reads `halt_height` from the local
+RPC (`abci_query path="params/node:p:halt_height"`). When the frozen height is
+H (node still on the old image: gno v1.8.0 commits H, saves H+1, then panics
+in BeginBlock(H+1), so `/status` reports H) or H+1 (node already on the new
+image, waiting for quorum after replaying H+1), it logs `voted halt at H,
+waiting for upgrade to <halt_min_version>`, resets the counter and takes no
+action. `autoheal.sh` runs the same check first and refuses to restore (alert
+`restore-skipped`), so a manual run is guarded too; use `restore.sh` directly
+if a restore at a halt is really intended. If the `halt_height` query fails,
+both scripts log it and keep the pre-guard behavior. Upgrade the node as usual
+(`DEPLOYMENT_RUNBOOK.md` §5); detection resumes normally once the chain moves
+past H+1. Tests: `roles/autoheal/tests/test-halt-guard.sh` (fake RPC, no
+node needed; needs `jq` and Python `jinja2`, runs `shellcheck` if installed).
+
 ## Anti-double-sign (validator)
 
 The archive restored is chain data only (`gnoland-data/db`) — it never

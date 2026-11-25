@@ -3,6 +3,7 @@
 # has stopped advancing while catching_up=false. Pure read — no side effect
 # beyond updating its own state file. After {{ autoheal_stuck_threshold }}
 # consecutive stuck samples, hands off to autoheal.sh to restore the node.
+# A node frozen at a GovDAO-voted halt (halt_height) is never counted as stuck.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -35,12 +36,25 @@ if [ -f "$STATE_FILE" ]; then
   STUCK_COUNT="$(jq -r '.stuck_count // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
 fi
 
+{% include 'halt-guard.sh.inc.j2' %}
+
 if [ "$CATCHING_UP" = "true" ]; then
   echo "ℹ️  catching_up=true (height=$HEIGHT) — syncing normally, not stuck."
   STUCK_COUNT=0
 elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
-  STUCK_COUNT=$((STUCK_COUNT + 1))
-  echo "⚠️  height unchanged at $HEIGHT (catching_up=false) — stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD"
+  # Before counting a stuck sample, rule out a GovDAO-voted halt.
+  HALT_RC=0
+  at_voted_halt "$HEIGHT" || HALT_RC=$?
+  if [ "$HALT_RC" -eq 0 ]; then
+    echo "⏸️  voted halt at $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>} — not stuck, no action."
+    STUCK_COUNT=0
+  else
+    if [ "$HALT_RC" -eq 2 ]; then
+      echo "⚠️  could not read halt_height from $RPC — cannot rule out a voted halt, counting this sample as stuck."
+    fi
+    STUCK_COUNT=$((STUCK_COUNT + 1))
+    echo "⚠️  height unchanged at $HEIGHT (catching_up=false) — stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD"
+  fi
 else
   echo "✅ height=$HEIGHT, progressing normally."
   STUCK_COUNT=0
