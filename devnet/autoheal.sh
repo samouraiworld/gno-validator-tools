@@ -30,7 +30,19 @@ DATA_DIR="$NODE/gnoland-data"
 
 mkdir -p "$LOCK_DIR" "$INCIDENT_DIR"
 
-compose() { docker compose --profile phase2 --profile snapshot "$@"; }
+compose() { docker compose --profile phase2 --profile snapshot --profile tmkms "$@"; }
+
+# tmkms is opt-in on the devnet (compose profile "tmkms"): the validator signs
+# through it only when its container carries a non-empty TMKMS_LISTEN_ADDR.
+# Only then must tmkms be stopped with it and started again after the restore.
+validator_uses_tmkms() {
+  local cid env
+  cid="$(compose ps -a -q validator 2>/dev/null)"
+  [ -n "$cid" ] || return 1
+  # Captured first: with pipefail, 'docker inspect | grep -q' can fail on SIGPIPE.
+  env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid")"
+  grep -q '^TMKMS_LISTEN_ADDR=.' <<<"$env"
+}
 
 alert() {
   local event="$1" message="$2"
@@ -90,10 +102,15 @@ fi
 echo "==> Using snapshot: $LATEST"
 
 # --- 3. Validator-only local safety check (anti-double-sign) ----------------
+SIGNER_SVCS="validator"
+if [ "$NODE" = "validator" ] && validator_uses_tmkms; then
+  SIGNER_SVCS="validator tmkms"
+fi
 if [ "$NODE" = "validator" ]; then
-  echo "==> Stopping validator + tmkms"
-  compose stop validator tmkms >/dev/null 2>&1 || true
-  for svc in validator tmkms; do
+  echo "==> Stopping $SIGNER_SVCS"
+  # shellcheck disable=SC2086  # word-split on purpose: list of services
+  compose stop $SIGNER_SVCS >/dev/null 2>&1 || true
+  for svc in $SIGNER_SVCS; do
     # -a is required: a plain 'compose ps' only lists RUNNING containers, so a
     # cleanly-stopped (exited) container would otherwise report empty state,
     # not "exited" — making this check fail-closed on every clean stop.
@@ -112,8 +129,8 @@ if ! ./restore.sh "$NODE" "$LATEST" --yes; then
   exit 1
 fi
 
-# --- 5. Validator only: start tmkms too (restore.sh only starts $NODE) ------
-if [ "$NODE" = "validator" ]; then
+# --- 5. tmkms-backed validator only: start tmkms too (restore.sh only starts $NODE)
+if [ "$SIGNER_SVCS" = "validator tmkms" ]; then
   echo "==> restore.sh already started $NODE; starting tmkms now"
   sleep 5
   if ! compose start tmkms >/dev/null; then

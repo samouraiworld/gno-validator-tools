@@ -37,3 +37,7 @@ propose-validator4.gno
 # this is committed; tmkms/<node>/tmkms.toml and tmkms/Dockerfile ARE tracked.
 tmkms/*/secrets/
 tmkms/run/
+
+# scenario-govdao-dead-chain.sh working files (config copy with secrets,
+# compose override), removed when the scenario exits
+.deadnet/

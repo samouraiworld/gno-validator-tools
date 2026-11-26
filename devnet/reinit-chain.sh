@@ -18,11 +18,11 @@ if [ ! -f "$CONFIG_FILE" ]; then
   echo "⚠️ config.toml not found (skipping config copy)"
 fi
 
-# 2. Stop containers (including validator4 if it was started via the phase2 profile)
+# 2. Stop containers (every profile: validator4, snapshotter, tmkms)
 # -v removes named Docker volumes (tx-indexer-db) so the indexer starts fresh
 # with the new chain. Validator bind mounts are NOT affected by -v.
 echo "🛑 Stopping containers and removing tx-indexer DB volume..."
-docker compose --profile phase2 down -v
+docker compose --profile phase2 --profile snapshot --profile tmkms down -v
 
 # 3. Copy genesis to all nodes
 echo "📦 Copying genesis.json to nodes..."

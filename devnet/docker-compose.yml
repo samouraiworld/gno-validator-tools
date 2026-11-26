@@ -25,18 +25,22 @@ services:
       SEEDS: "${SEEDS_VALIDATOR}"
       PERSISTENT_PEERS: "${SEEDS_VALIDATOR}"
       PEX: "true"
-      # Externalize consensus signing to the tmkms sidecar (see tmkms service).
-      # Unset these to revert validator to local signing.
+      # Consensus signing: local (priv_validator_key.json) by default. With
+      # TMKMS_LISTEN_ADDR set, it moves to the tmkms sidecar below, which is
+      # in the "tmkms" profile. Set both together: 'make up TMKMS=1' does.
       TMKMS_CHAIN_ID: "dev"
-      TMKMS_LISTEN_ADDR: "unix:///run/gnoland/privval.sock"
+      TMKMS_LISTEN_ADDR: "${TMKMS_LISTEN_ADDR:-}"
 
   # tmkms signer for `validator` (softsign backend, Unix-socket transport).
   # It dials the socket gnoland creates; reconnect=true makes it retry until
   # the validator is up. Same UID as validator so the 0600 socket is reachable.
+  # Opt-in (profile "tmkms"): the plain devnet signs locally, so tests that
+  # only need validators + RPC do not depend on it.
   tmkms:
     image: tmkms:local
     build: ./tmkms
     restart: on-failure
+    profiles: ["tmkms"]
     user: "${DOCKER_USER:-1000:1000}"
     command: ["start", "-c", "/tmkms/tmkms.toml"]
     volumes:

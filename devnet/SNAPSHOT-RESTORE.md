@@ -2,6 +2,10 @@
 
 Regular chain snapshots + fast node restore, tested on the local devnet.
 
+The snapshotter (profile `snapshot`) and tmkms (profile `tmkms`) are opt-in on
+the devnet: start them with `make up-full`. The validator procedures below
+assume `validator` signs through tmkms (`TMKMS=1`).
+
 ## How it works
 
 Snapshots are taken from a **dedicated non-signing full node** (`snapshotter`),
@@ -117,7 +121,7 @@ docker compose stop validator
 rm -rf validator/gnoland-data/db validator/gnoland-data/wal   # keep secrets + tmkms
 make restore-validator SNAP=$(ls -t snapshots/*.tar.zst | head -1)
 make status
-docker compose logs tmkms | grep -i "double sign" || echo "no double-sign refusal — OK"
+docker compose --profile tmkms logs tmkms | grep -i "double sign" || echo "no double-sign refusal — OK"
 ```
 
 ## Auto-heal (detect + auto-restore)
