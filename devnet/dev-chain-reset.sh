@@ -51,8 +51,11 @@ fi
 
 echo "🔄 Resetting devnet chain state..."
 for node in $NODES; do
+  [ -d "$node" ] || continue   # e.g. snapshotter on a devnet bootstrapped before it existed
   cp genesis.json "$node/"
   [ -f config.toml ] && cp config.toml "$node/"
+  chown "$OWNER" "$node/genesis.json"
+  [ -f "$node/config.toml" ] && chown "$OWNER" "$node/config.toml"
 
   data="$node/gnoland-data"
   if [ ! -d "$data" ]; then
@@ -71,6 +74,8 @@ done
 # Same reason as reinit-chain.sh: tmkms refuses to sign heights at or below
 # the highest one it recorded, so a chain back at block 0 needs its state gone.
 rm -f tmkms/*/secrets/consensus_state.json
+# Snapshots of the wiped chain would be restored onto the new one by auto-heal.
+rm -f snapshots/*.tar.zst
 
 echo "🧹 Purging chain '$DEV_CHAIN' rows from the gnomonitoring database (keeping webhooks, contacts and Telegram subs)..."
 for table in daily_participations addr_monikers govdaos daily_participation_agregas alert_logs; do

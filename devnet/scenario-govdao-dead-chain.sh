@@ -35,6 +35,8 @@ cd "$(dirname "$0")"
 
 # GNOMONITORING_DIR is the gnomonitoring checkout that holds
 # compose_dev_chain.yml (default: the sibling of gno-validator-tools).
+# compose_dev_chain.yml mounts this directory through DEVNET_DIR.
+export DEVNET_DIR="${DEVNET_DIR:-$PWD}"
 GNOMONITORING_DIR="${GNOMONITORING_DIR:-$PWD/../../gnomonitoring}"
 DEV_COMPOSE="${DEV_COMPOSE:-docker compose -f $GNOMONITORING_DIR/compose_dev_chain.yml --env-file $GNOMONITORING_DIR/.env --env-file .env}"
 RPC="${RPC:-http://localhost:26658}"
@@ -113,7 +115,9 @@ wait_for() { # wait_for <seconds> <description> <command...>
 }
 
 echo ">>> Preconditions"
-docker ps --format '{{.Names}}' | grep -qx "$BACKEND" ||
+# Captured first: with pipefail, 'docker ps | grep -q' can fail on SIGPIPE.
+running="$(docker ps --format '{{.Names}}')"
+grep -qx "$BACKEND" <<<"$running" ||
 	fail "$BACKEND is not running: run 'make dev-up' first"
 curl -sf "$RPC/status" >/dev/null || fail "the dev chain RPC $RPC does not answer: run 'make dev-up' first"
 [ -f "$BASE_CONFIG" ] || fail "$BASE_CONFIG is missing"
@@ -127,6 +131,7 @@ purge_dead_chain # leftovers of an interrupted run
 echo ">>> Step 1: restart the backend with a dead second chain, '$DEAD_CHAIN'"
 umask 077 # the scenario config is a copy of the dev config, secrets included
 mkdir -p "$WORK_DIR"
+chmod 700 "$WORK_DIR" # a leftover directory may have other permissions
 python3 - "$BASE_CONFIG" "$WORK_DIR/config.yaml" "$DEAD_CHAIN" <<'PY'
 import sys
 import yaml

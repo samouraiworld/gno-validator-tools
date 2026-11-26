@@ -138,7 +138,7 @@ services:
     container_name: tx-indexer
     restart: unless-stopped
     ports:
-      - 8546:8546
+      - 127.0.0.1:8546:8546
     command: start --remote http://validator:26657 --listen-address 0.0.0.0:8546 --db-path /var/lib/app/
     volumes:
       - tx-indexer-db:/var/lib/app/

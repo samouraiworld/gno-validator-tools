@@ -145,10 +145,13 @@ docker run --rm --entrypoint /usr/bin/gnoland \
 
 **Switching between local signing and tmkms.** Pass `TMKMS=1` to every
 lifecycle command (`make up`, `make reinit`, ...) or `export TMKMS=1` in the
-shell. `make up` refuses to run without it while tmkms is running, because
-compose would recreate `validator` with local signing. Switch on a fresh chain:
-`make reinit TMKMS=1`, or `make reinit` to go back to local signing. With raw
-`docker compose`, set `TMKMS_LISTEN_ADDR` and `--profile tmkms` together.
+shell. Local signing and tmkms each keep their own double-sign record
+(`priv_validator_state.json`, `consensus_state.json`), and neither follows the
+other, so the signer only changes on a fresh chain: `make reinit TMKMS=1`, or
+`make reinit` to go back to local signing. The Makefile records the current
+chain's mode in `.signer-mode` and `make up` refuses a different one, even after
+`make down`. With raw `docker compose`, set `TMKMS_LISTEN_ADDR` and
+`--profile tmkms` together; nothing checks the mode then.
 
 > For the **2-VM TCP** variant of this setup (signer on a separate host, with
 > the `allowed_kms_pubkeys` pin that TCP requires), see
@@ -266,12 +269,12 @@ containers). The backend reaches the devnet by service name
    (`make full-reinit`), then create the backend config:
 
    ```bash
-   cd "$GNOMONITORING_DIR"
-   cp backend/config_dev_chain.yaml.template backend/config_dev_chain.yaml
-   cp .env.example .env   # POSTGRES_PASSWORD; database.password defaults to "changeme"
+   (cd "$GNOMONITORING_DIR" &&
+    cp backend/config_dev_chain.yaml.template backend/config_dev_chain.yaml &&
+    cp .env.example .env)   # POSTGRES_PASSWORD; database.password defaults to "changeme"
    ```
 
-2. **Start (always from block 0):**
+2. **Start (always from block 0), from this directory:**
 
    ```bash
    make dev-up     # down, reset, then up --build
@@ -294,8 +297,15 @@ ingested until the 5-minute refresh) and fires a spurious RPC-outage alert.
 #### Running it from the gnomonitoring repository root
 
 The Makefile targets are thin wrappers; the same stack can be driven with
-plain `docker compose` from the repository root. Whether `up` resets the chain
-depends on the state of the stack:
+plain `docker compose` from the gnomonitoring repository root, with
+`DEVNET_DIR` exported (it locates this directory, for the bind mounts and the
+second env file):
+
+```bash
+export DEVNET_DIR=/path/to/gno-validator-tools/devnet
+```
+
+Whether `up` resets the chain depends on the state of the stack:
 
 | Stack state before `up -d`                  | Result                                                             |
 |---------------------------------------------|--------------------------------------------------------------------|
@@ -303,7 +313,7 @@ depends on the state of the stack:
 | Any validator running                       | Nothing is wiped — `chain-reset` sees a live validator and skips   |
 
 So a plain `up -d` against a running stack is safe. To **force** a fresh chain
-(what `make dev-up` does):
+(what `make dev-up` does, after also stopping this directory's own containers):
 
 ```bash
 docker compose -f compose_dev_chain.yml --env-file .env --env-file "$DEVNET_DIR/.env" --profile phase2 down

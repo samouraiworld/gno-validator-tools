@@ -35,13 +35,15 @@ compose() { docker compose --profile phase2 --profile snapshot --profile tmkms "
 # tmkms is opt-in on the devnet (compose profile "tmkms"): the validator signs
 # through it only when its container carries a non-empty TMKMS_LISTEN_ADDR.
 # Only then must tmkms be stopped with it and started again after the restore.
-validator_uses_tmkms() {
+# Prints "tmkms" or "local"; fails when the mode cannot be read, so the caller
+# aborts instead of guessing (a wrong "local" would leave tmkms unchecked).
+validator_signer() {
   local cid env
-  cid="$(compose ps -a -q validator 2>/dev/null)"
+  cid="$(compose ps -a -q validator)" || return 1
   [ -n "$cid" ] || return 1
   # Captured first: with pipefail, 'docker inspect | grep -q' can fail on SIGPIPE.
-  env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid")"
-  grep -q '^TMKMS_LISTEN_ADDR=.' <<<"$env"
+  env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid")" || return 1
+  if grep -q '^TMKMS_LISTEN_ADDR=.' <<<"$env"; then echo tmkms; else echo local; fi
 }
 
 alert() {
@@ -103,8 +105,12 @@ echo "==> Using snapshot: $LATEST"
 
 # --- 3. Validator-only local safety check (anti-double-sign) ----------------
 SIGNER_SVCS="validator"
-if [ "$NODE" = "validator" ] && validator_uses_tmkms; then
-  SIGNER_SVCS="validator tmkms"
+if [ "$NODE" = "validator" ]; then
+  if ! SIGNER="$(validator_signer)"; then
+    alert "restore-aborted" "$NODE: cannot read the validator container's signer mode (local or tmkms) — refusing to restore. Manual intervention required."
+    exit 1
+  fi
+  [ "$SIGNER" = "tmkms" ] && SIGNER_SVCS="validator tmkms"
 fi
 if [ "$NODE" = "validator" ]; then
   echo "==> Stopping $SIGNER_SVCS"

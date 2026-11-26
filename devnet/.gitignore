@@ -22,6 +22,8 @@ genesis_balances.txt
 config.toml
 .env
 .devaddrs.mk
+# Signer mode (local or tmkms) the current chain was started with, see Makefile
+.signer-mode
 
 # Throwaway gnokey dev keybase (dev + v4op accounts)
 .gnokey-dev/

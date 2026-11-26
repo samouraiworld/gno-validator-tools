@@ -34,6 +34,8 @@ cd "$(dirname "$0")"
 
 # GNOMONITORING_DIR is the gnomonitoring checkout that holds
 # compose_dev_chain.yml (default: the sibling of gno-validator-tools).
+# compose_dev_chain.yml mounts this directory through DEVNET_DIR.
+export DEVNET_DIR="${DEVNET_DIR:-$PWD}"
 GNOMONITORING_DIR="${GNOMONITORING_DIR:-$PWD/../../gnomonitoring}"
 DEV_COMPOSE="${DEV_COMPOSE:-docker compose -f $GNOMONITORING_DIR/compose_dev_chain.yml --env-file $GNOMONITORING_DIR/.env --env-file .env}"
 RPC="${RPC:-http://localhost:26658}"

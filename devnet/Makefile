@@ -127,15 +127,21 @@ ensure-bootstrap:
 		./bootstrap.sh; \
 	fi
 
-# Refuse to silently switch the validator's signer: a 'docker compose up'
-# without TMKMS=1 while tmkms runs would recreate validator with local signing
-# and leave tmkms dialing a dead socket (and the reverse leaves validator
-# waiting for a signer that never starts).
+# Refuse to switch the validator's signer in the middle of a chain. Local
+# signing guards double-signing with priv_validator_state.json, tmkms with its
+# own consensus_state.json; neither follows the other, so a switch can sign a
+# height twice. .signer-mode (gitignored) records the mode the current chain
+# was started with; the chain resets (reinit, full-reinit, dev-up, clean-all)
+# clear it.
+SIGNER_MODE := $(if $(filter 1,$(TMKMS)),tmkms,local)
 check-signer-mode:
-	@running="$$(docker compose $(ALL_PROFILES) ps -q --status running tmkms 2>/dev/null)"; \
-	if [ -n "$$running" ] && [ "$(TMKMS)" != "1" ]; then \
-		echo "❌ tmkms is running: pass TMKMS=1, or 'make down' first to switch to local signing."; exit 1; \
-	fi
+	@have="$$(cat .signer-mode 2>/dev/null)"; \
+	if [ -n "$$have" ] && [ "$$have" != "$(SIGNER_MODE)" ]; then \
+		echo "❌ this chain runs with $$have signing; this command asks for $(SIGNER_MODE) signing."; \
+		echo "   Keep the same TMKMS value, or switch on a fresh chain: make reinit$(if $(filter 1,$(TMKMS)), TMKMS=1,)"; \
+		exit 1; \
+	fi; \
+	echo "$(SIGNER_MODE)" > .signer-mode
 
 # The stack is always torn down first: the chain-reset service only wipes
 # chain state when the validators are not running, so 'dev-up' guarantees a
@@ -144,12 +150,17 @@ check-signer-mode:
 dev-up: ensure-bootstrap
 	@test -f $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
 		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml missing - set GNOMONITORING_DIR to a gnomonitoring checkout"; exit 1; }
+	@grep -q 'DEVNET_DIR' $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
+		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml does not use DEVNET_DIR: that gnomonitoring"; \
+		echo "   checkout still runs its own gnoland-test/ devnet. Update it, or use its gnoland-test/."; exit 1; }
+	@test "$(TMKMS)" != "1" || { echo "❌ the gnomonitoring dev stack has no tmkms: run dev-up without TMKMS=1"; exit 1; }
 	@test -f $(GNOMONITORING_DIR)/.env || { echo "❌ $(GNOMONITORING_DIR)/.env missing - copy it from .env.example there"; exit 1; }
 	@test -f $(GNOMONITORING_DIR)/backend/config_dev_chain.yaml || { \
 		echo "❌ $(GNOMONITORING_DIR)/backend/config_dev_chain.yaml missing - copy it from config_dev_chain.yaml.template"; exit 1; }
 	docker compose $(ALL_PROFILES) down --remove-orphans
 	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
 	$(DEV_COMPOSE) up -d --build
+	@echo local > .signer-mode
 
 dev-down:
 	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
@@ -179,7 +190,8 @@ down:
 
 reinit: clean-db
 	./reinit-chain.sh
-	docker compose up -d
+	rm -f .signer-mode
+	@$(MAKE) --no-print-directory up
 
 regen-genesis:
 	rm -f genesis.json
@@ -187,7 +199,8 @@ regen-genesis:
 
 full-reinit: regen-genesis clean-db
 	./reinit-chain.sh
-	docker compose up -d
+	rm -f .signer-mode
+	@$(MAKE) --no-print-directory up
 
 # Purge the local "dev" chain rows from the gnomonitoring backend DB. Chain data
 # only (participation, monikers, govdao proposals, aggregates, alert logs).
@@ -218,7 +231,7 @@ clean-all: clean-db
 		'rm -rf validator/gnoland-data validator2/gnoland-data validator3/gnoland-data validator4/gnoland-data snapshotter/gnoland-data \
 		        validator/genesis.json validator2/genesis.json validator3/genesis.json validator4/genesis.json snapshotter/genesis.json \
 		        validator/config.toml validator2/config.toml validator3/config.toml validator4/config.toml snapshotter/config.toml \
-		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk \
+		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk .signer-mode \
 		        tmkms/*/secrets tmkms/run snapshots \
 		        init-govdao.gno propose-validator4.gno'
 	@echo "✅ Clean. Run 'make full-reinit' to regenerate everything from scratch."
@@ -474,7 +487,8 @@ scenario-autoheal-follower: up-validator4
 # is the scenario that matters most for anti-double-sign confidence — it
 # forces the validator-specific restart/rejoin/live-signing path directly.
 scenario-autoheal-validator:
-	@test -n "$$(docker compose --profile tmkms ps -q --status running tmkms)" || { \
+	@test "$$(cat .signer-mode 2>/dev/null)" = tmkms && \
+	 test -n "$$(docker compose --profile tmkms ps -q --status running tmkms)" || { \
 		echo "❌ tmkms is not running: this scenario needs the tmkms-backed validator ('make up-full')."; exit 1; }
 	@echo "==> Network stays healthy (validator2/3/4 keep producing blocks) — forcing an auto-heal restore on the tmkms validator directly"
 	./autoheal.sh validator
