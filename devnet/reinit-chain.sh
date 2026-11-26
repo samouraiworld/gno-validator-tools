@@ -6,7 +6,7 @@ echo "🔄 Reinitializing chain..."
 
 GENESIS_FILE="genesis.json"
 CONFIG_FILE="config.toml"
-NODES=("validator" "validator2" "validator3" "validator4")
+NODES=("validator" "validator2" "validator3" "validator4" "snapshotter")
 
 # 1. Ensure genesis exists (regenerate via bootstrap.sh if missing)
 if [ ! -f "$GENESIS_FILE" ]; then
@@ -18,15 +18,16 @@ if [ ! -f "$CONFIG_FILE" ]; then
   echo "⚠️ config.toml not found (skipping config copy)"
 fi
 
-# 2. Stop containers (including validator4 if it was started via the phase2 profile)
+# 2. Stop containers (every profile: validator4, snapshotter, tmkms)
 # -v removes named Docker volumes (tx-indexer-db) so the indexer starts fresh
 # with the new chain. Validator bind mounts are NOT affected by -v.
 echo "🛑 Stopping containers and removing tx-indexer DB volume..."
-docker compose --profile phase2 down -v
+docker compose --profile phase2 --profile snapshot --profile tmkms down -v
 
 # 3. Copy genesis to all nodes
 echo "📦 Copying genesis.json to nodes..."
 for node in "${NODES[@]}"; do
+  [ -d "$node" ] || continue   # e.g. snapshotter on a devnet bootstrapped before it existed
   cp "$GENESIS_FILE" "$node/"
 done
 
@@ -34,6 +35,7 @@ done
 # 4. Copy config to all nodes
 echo "📦 Copying config.toml to nodes..."
 for node in "${NODES[@]}"; do
+  [ -d "$node" ] || continue
   cp "$CONFIG_FILE" "$node/"
 done
 
@@ -73,6 +75,13 @@ done
 # priv_validator_state.json reset above. No-op if tmkms isn't in use.
 echo "🧹 Resetting tmkms signer state (if any)"
 rm -f tmkms/*/secrets/consensus_state.json 2>/dev/null || true
+
+# Snapshots belong to the chain that was just wiped: auto-heal picks the
+# highest one, so a leftover would restore old-chain blocks onto the new chain.
+echo "🧹 Removing snapshots of the previous chain (if any)"
+rm -f snapshots/*.tar.zst
+# Fresh chain: the next 'make up' may pick either signer (see Makefile).
+rm -f .signer-mode
 
 echo "✅ Chain reinitialized."
 echo ""

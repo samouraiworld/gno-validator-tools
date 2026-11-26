@@ -1,9 +1,23 @@
 # Pin the compose project name so the devnet network is always
 # "gnoland-test_default", regardless of the directory name. The gnomonitoring
-# backend (backend/docker-compose.yml) attaches to that network by name, so a
-# stable project name prevents DNS breakage ("no such host: validator") when
-# this folder gets copied or renamed.
+# dev stack (compose_dev_chain.yml in the gnomonitoring repository) uses the
+# same project name, so the scenarios below drive its containers by service
+# name. Consequence: only ONE devnet can run on a machine at a time (same
+# project name, same host ports 26658-26662, 8546, 8890).
 export COMPOSE_PROJECT_NAME := gnoland-test
+
+# tmkms is opt-in (compose profile "tmkms"). By default `validator` signs
+# locally and no tmkms container runs. Pass TMKMS=1 to every lifecycle command
+# (or 'export TMKMS=1') to move its signing to the tmkms sidecar:
+#   make up TMKMS=1
+# Both settings must change together, so they are derived from one flag.
+TMKMS ?=
+ifeq ($(TMKMS),1)
+export TMKMS_LISTEN_ADDR := unix:///run/gnoland/privval.sock
+export COMPOSE_PROFILES := tmkms
+endif
+# Every profile, for commands that must reach every container (down, clean).
+ALL_PROFILES := --profile phase2 --profile snapshot --profile tmkms
 
 DEV_HOME := $(CURDIR)/.gnokey-dev
 DEV_PASS := devpassword123
@@ -23,17 +37,20 @@ PG_USER      := gnomonitoring
 PG_DB        := gnomonitoring
 DEV_CHAIN    := dev
 
-.PHONY: help up up-validator4 up-snapshotter ensure-bootstrap down reinit regen-genesis full-reinit clean-db clean-all status logs \
+.PHONY: help up up-full up-validator4 up-snapshotter ensure-bootstrap check-signer-mode \
+        down reinit regen-genesis full-reinit clean-db clean-all status logs \
         stop-val1 stop-val2 stop-val3 stop-val4 \
         start-val1 start-val2 start-val3 start-val4 \
         check-stuck autoheal snapshot snapshots restore-fullnode restore-validator \
-        scenario1 scenario2 scenario2-restart scenario3 scenario3-restart \
+        scenario1 scenario1-propose scenario1-execute scenario2 scenario2-restart scenario3 scenario3-restart \
         scenario4 scenario4-restart scenario5 scenario-mute \
         scenario-autoheal-follower scenario-autoheal-validator scenario-autoheal-no-snapshot scenario-autoheal-cooldown
 
 help:
 	@echo "Chain lifecycle:"
-	@echo "  make up                - start validator/validator2/validator3 + tx-indexer + gnoweb"
+	@echo "  make up                - start validator/validator2/validator3 + tx-indexer + gnoweb (local signing)"
+	@echo "  make up TMKMS=1        - same, with validator signing through the tmkms sidecar (profile tmkms)"
+	@echo "  make up-full           - up TMKMS=1 + validator4 + snapshotter: what the auto-heal scenarios need"
 	@echo "  make up-validator4     - start validator4 (phase2 profile, needed for scenario1)"
 	@echo "  make down              - stop and remove all containers"
 	@echo "  make reinit            - wipe chain state + purge dev-chain DB rows, restart from existing genesis.json"
@@ -53,7 +70,7 @@ help:
 	@echo "  make check-stuck NODE=<svc>   - run one stuck-detection check on <svc>"
 	@echo "  make autoheal NODE=<svc>      - manually trigger the auto-heal restore on <svc>"
 	@echo ""
-	@echo "Auto-heal scenarios:"
+	@echo "Auto-heal scenarios (run 'make up-full' and 'make snapshot' first):"
 	@echo "  make scenario-autoheal-follower  - stop validator4, force-restore it, network stays healthy"
 	@echo "  make scenario-autoheal-validator - force auto-heal restore of the tmkms validator, network stays healthy"
 	@echo "  make scenario-autoheal-no-snapshot - autoheal aborts cleanly with no snapshot available"
@@ -87,8 +104,32 @@ ensure-bootstrap:
 		./bootstrap.sh; \
 	fi
 
-up: ensure-bootstrap
+# Refuse to switch the validator's signer in the middle of a chain. Local
+# signing guards double-signing with priv_validator_state.json, tmkms with its
+# own consensus_state.json; neither follows the other, so a switch can sign a
+# height twice. .signer-mode (gitignored) records the mode the current chain
+# was started with: 'make up' writes it once compose succeeded; the chain
+# resets clear it (reinit-chain.sh, clean-all). gnomonitoring's dev stack,
+# which reuses this directory and signs locally, sets it to local when it
+# resets the chain.
+SIGNER_MODE := $(if $(filter 1,$(TMKMS)),tmkms,local)
+check-signer-mode:
+	@have="$$(cat .signer-mode 2>/dev/null)"; \
+	if [ -n "$$have" ] && [ "$$have" != "$(SIGNER_MODE)" ]; then \
+		echo "❌ this chain runs with $$have signing; this command asks for $(SIGNER_MODE) signing."; \
+		echo "   Keep the same TMKMS value, or switch on a fresh chain: make reinit$(if $(filter 1,$(TMKMS)), TMKMS=1,)"; \
+		exit 1; \
+	fi
+
+up: ensure-bootstrap check-signer-mode
 	docker compose up -d
+	@echo "$(SIGNER_MODE)" > .signer-mode
+
+# Everything the auto-heal scenarios need: tmkms-backed validator, validator4
+# and the snapshotter. Then take a first snapshot with 'make snapshot'.
+up-full:
+	@$(MAKE) --no-print-directory up TMKMS=1
+	docker compose --profile phase2 --profile snapshot up -d validator4 snapshotter
 
 up-validator4: ensure-bootstrap
 	docker compose --profile phase2 up -d validator4
@@ -99,11 +140,11 @@ up-snapshotter: ensure-bootstrap
 	docker compose --profile snapshot up -d snapshotter
 
 down:
-	docker compose down
+	docker compose $(ALL_PROFILES) down
 
 reinit: clean-db
 	./reinit-chain.sh
-	docker compose up -d
+	@$(MAKE) --no-print-directory up
 
 regen-genesis:
 	rm -f genesis.json
@@ -111,7 +152,7 @@ regen-genesis:
 
 full-reinit: regen-genesis clean-db
 	./reinit-chain.sh
-	docker compose up -d
+	@$(MAKE) --no-print-directory up
 
 # Purge the local "dev" chain rows from the gnomonitoring backend DB. Chain data
 # only (participation, monikers, govdao proposals, aggregates, alert logs).
@@ -136,13 +177,13 @@ clean-db:
 # None of this is committed (see .gitignore). Uses a throwaway alpine container
 # to delete files that docker may have created as root.
 clean-all: clean-db
-	docker compose --profile phase2 --profile snapshot down -v 2>/dev/null || true
+	docker compose $(ALL_PROFILES) down -v 2>/dev/null || true
 	@echo "🧨 Removing all generated devnet artifacts (keys, genesis, config, keybase, snapshots)..."
 	docker run --rm -v "$(CURDIR):/work" -w /work alpine sh -c \
 		'rm -rf validator/gnoland-data validator2/gnoland-data validator3/gnoland-data validator4/gnoland-data snapshotter/gnoland-data \
 		        validator/genesis.json validator2/genesis.json validator3/genesis.json validator4/genesis.json snapshotter/genesis.json \
 		        validator/config.toml validator2/config.toml validator3/config.toml validator4/config.toml snapshotter/config.toml \
-		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk \
+		        .gnokey-dev genesis.json genesis_balances.txt config.toml .env .devaddrs.mk .signer-mode \
 		        tmkms/*/secrets tmkms/run snapshots \
 		        init-govdao.gno propose-validator4.gno'
 	@echo "✅ Clean. Run 'make full-reinit' to regenerate everything from scratch."
@@ -202,6 +243,14 @@ restore-validator:
 	./restore.sh validator "$(SNAP)"
 
 scenario1: up-validator4
+	@$(MAKE) --no-print-directory scenario1-propose
+	@$(MAKE) --no-print-directory scenario1-execute
+
+# scenario1 in two halves, for callers that act between the proposal and the
+# vote: gnomonitoring's GovDAO scenarios run 'make -C <this dir>
+# scenario1-propose', check that proposal #0 is tracked as IN PROGRESS, then
+# run scenario1-execute, so its later ACCEPTED is a live status change.
+scenario1-propose: up-validator4
 	@echo ">>> Step 1: initialize GovDAO (InitWithUsers)"
 	@if gnokey query vm/qeval -remote $(RPC) \
 		-data 'gno.land/r/gov/dao.AllowedDAOs()' 2>/dev/null | grep -q 'gno.land/r/gov/dao/v3/impl'; then \
@@ -234,6 +283,8 @@ scenario1: up-validator4
 		-chainid dev -remote $(RPC) \
 		-home "$(DEV_HOME)" -insecure-password-stdin \
 		dev propose-validator4.gno
+
+scenario1-execute:
 	@echo ">>> Step 5: vote YES on proposal #0"
 	echo "$(DEV_PASS)" | gnokey maketx call \
 		-pkgpath gno.land/r/gov/dao -func MustVoteOnProposalSimple \
@@ -288,9 +339,9 @@ scenario4-restart:
 	docker compose --profile phase2 start validator validator2 validator3 validator4
 	@echo "Validators restarted. The monitor loop should resume fetching heights."
 
-# scenario5: GovDAO rejection path. Mirrors scenario1 but votes NO and never
-# executes, so the proposal is rejected instead of onboarding validator4. This
-# exercises the GovDAO watcher's CheckProposalStatus (status -> rejected/expired).
+# scenario5: GovDAO rejection path. Mirrors scenario1 but votes NO, so the
+# proposal is rejected instead of onboarding validator4. This exercises the
+# GovDAO watcher's CheckProposalStatus (status -> REJECTED + notification).
 # Run on a FRESH chain (targets proposal #0): 'make reinit && make scenario5'.
 scenario5: up-validator4
 	@echo ">>> Rejected-proposal scenario (FRESH chain expected: targets proposal #0)"
@@ -322,16 +373,30 @@ scenario5: up-validator4
 		-chainid dev -remote $(RPC) \
 		-home "$(DEV_HOME)" -insecure-password-stdin \
 		dev propose-validator4.gno
-	@echo ">>> Step 4: vote NO on proposal #0 (rejection path - NOT executed)"
+	@echo ">>> Step 4: vote NO on proposal #0"
 	echo "$(DEV_PASS)" | gnokey maketx call \
 		-pkgpath gno.land/r/gov/dao -func MustVoteOnProposalSimple \
 		-args 0 -args NO \
 		-gas-fee 1000000ugnot -gas-wanted 50000000 -broadcast \
 		-chainid dev -remote $(RPC) \
 		-home "$(DEV_HOME)" -insecure-password-stdin dev
-	@echo ">>> Done. Expect the GovDAO watcher to track it and mark it rejected/expired:"
+	@echo ">>> Step 5: settle proposal #0 via ExecuteProposal"
+	@echo "    A NO supermajority alone does NOT mark a proposal rejected on chain:"
+	@echo "    gov/dao v3 only sets Denied inside PreExecuteProposal. Without this"
+	@echo "    call the proposal renders 'open for votes' forever and the watcher"
+	@echo "    has nothing to report. The call returns false (the payload is NOT"
+	@echo "    executed, validator4 is NOT onboarded) but flips the status."
+	echo "$(DEV_PASS)" | gnokey maketx call \
+		-pkgpath gno.land/r/gov/dao -func ExecuteProposal \
+		-args 0 \
+		-gas-fee 1000000ugnot -gas-wanted 50000000 -broadcast \
+		-chainid dev -remote $(RPC) \
+		-home "$(DEV_HOME)" -insecure-password-stdin dev
+	@echo ">>> Done. The render now carries 'PROPOSAL HAS BEEN DENIED'. Expect a"
+	@echo ">>> rejection notification on Discord/Slack/Telegram, and status=REJECTED:"
 	@echo "  docker exec gnomonitoring-postgres psql -U gnomonitoring -d gnomonitoring \\"
-	@echo "    -c \"SELECT id, status FROM govdaos WHERE chain_id='dev';\""
+	@echo "    -c \"SELECT id, status, status_synced FROM govdaos WHERE chain_id='dev';\""
+	@echo ">>> Note: the watcher polls every 5 minutes, so allow one cycle."
 
 # scenario-mute: NOT a separate chain action - it asserts the resend DEDUP
 # (CLAUDE.md's "4 repeats -> MUTED" is outdated; the real rule is one alert per
@@ -375,11 +440,14 @@ scenario-autoheal-follower: up-validator4
 # is the scenario that matters most for anti-double-sign confidence — it
 # forces the validator-specific restart/rejoin/live-signing path directly.
 scenario-autoheal-validator:
+	@test "$$(cat .signer-mode 2>/dev/null)" = tmkms && \
+	 test -n "$$(docker compose --profile tmkms ps -q --status running tmkms)" || { \
+		echo "❌ tmkms is not running: this scenario needs the tmkms-backed validator ('make up-full')."; exit 1; }
 	@echo "==> Network stays healthy (validator2/3/4 keep producing blocks) — forcing an auto-heal restore on the tmkms validator directly"
 	./autoheal.sh validator
 	@echo "==> Confirm the validator resumed LIVE signing (no 'double sign' refusal in tmkms logs):"
 	sleep 15
-	docker compose logs tmkms --tail 30 | grep -i "sign" || echo "(no sign-related log lines yet)"
+	docker compose --profile tmkms logs tmkms --tail 30 | grep -i "sign" || echo "(no sign-related log lines yet)"
 	@echo "==> Confirm validator is live and in sync with the rest of the network:"
 	curl -s http://localhost:26658/status | jq -r '.result.sync_info'
 	$(MAKE) status
