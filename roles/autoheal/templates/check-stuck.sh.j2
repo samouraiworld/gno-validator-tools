@@ -3,14 +3,24 @@
 # has stopped advancing while catching_up=false. Pure read — no side effect
 # beyond updating its own state file. After {{ autoheal_stuck_threshold }}
 # consecutive stuck samples, hands off to autoheal.sh to restore the node.
+# A node frozen at a GovDAO-voted halt (halt_height) is never counted as stuck.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
+NODE_TYPE="{{ autoheal_node_type }}"
 RPC="http://{{ autoheal_rpc_bind }}"
 STATE_DIR="{{ autoheal_state_dir }}"
 STATE_FILE="$STATE_DIR/{{ autoheal_node_type }}.state"
 STUCK_THRESHOLD="{{ autoheal_stuck_threshold }}"
+HALT_ALERT_INTERVAL="{{ autoheal_halt_alert_interval_seconds }}"
+
+# WEBHOOK_URL for the voted-halt alert. Read only that key from .env (not a
+# full `source`): a broken .env must not stop detection.
+if [ -f .env ]; then
+  ENV_WEBHOOK_URL="$(sed -n 's/^WEBHOOK_URL=//p' .env 2>/dev/null | tail -n 1 | sed -e "s/^[\"']//" -e "s/[\"']\$//" || true)"
+  WEBHOOK_URL="${ENV_WEBHOOK_URL:-${WEBHOOK_URL:-}}"
+fi
 
 mkdir -p "$STATE_DIR"
 
@@ -33,23 +43,71 @@ STUCK_COUNT=0
 if [ -f "$STATE_FILE" ]; then
   PREV_HEIGHT="$(jq -r '.height // empty' "$STATE_FILE" 2>/dev/null || true)"
   STUCK_COUNT="$(jq -r '.stuck_count // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
+  HALT_ALERT_TS="$(jq -r '.halt_alert_ts // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
+  UNKNOWN_ALERT_TS="$(jq -r '.unknown_alert_ts // 0' "$STATE_FILE" 2>/dev/null || echo 0)"
 fi
+# Last voted-halt-wait / halt-unknown alert times (rate limit, one per type).
+# Cleared only when the height moves again.
+# Canonical decimal (a leading zero would be read as octal by $(( ))).
+[[ "${HALT_ALERT_TS:-}" =~ ^[0-9]{1,18}$ ]] && HALT_ALERT_TS=$((10#$HALT_ALERT_TS)) || HALT_ALERT_TS=0
+[[ "${UNKNOWN_ALERT_TS:-}" =~ ^[0-9]{1,18}$ ]] && UNKNOWN_ALERT_TS=$((10#$UNKNOWN_ALERT_TS)) || UNKNOWN_ALERT_TS=0
+[[ "${STUCK_COUNT:-}" =~ ^[0-9]{1,9}$ ]] && STUCK_COUNT=$((10#$STUCK_COUNT)) || STUCK_COUNT=0
+[[ "$HALT_ALERT_INTERVAL" =~ ^[0-9]{1,9}$ ]] || HALT_ALERT_INTERVAL=3600
+
+{% include 'halt-guard.sh.inc.j2' %}
 
 if [ "$CATCHING_UP" = "true" ]; then
   echo "ℹ️  catching_up=true (height=$HEIGHT) — syncing normally, not stuck."
   STUCK_COUNT=0
 elif [ -n "$PREV_HEIGHT" ] && [ "$HEIGHT" = "$PREV_HEIGHT" ]; then
-  STUCK_COUNT=$((STUCK_COUNT + 1))
-  echo "⚠️  height unchanged at $HEIGHT (catching_up=false) — stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD"
+  # Before counting a stuck sample, rule out a GovDAO-voted halt.
+  HALT_RC=0
+  at_voted_halt "$HEIGHT" || HALT_RC=$?
+  if [ "$HALT_RC" -eq 0 ]; then
+    echo "⏸️  voted halt at $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>} — not stuck, no action."
+    STUCK_COUNT=0
+    # halt_height stays set on chain after the network resumes, so a node
+    # frozen at H or H+1 later on is never restored automatically. Alert on
+    # the first halt sample and then every HALT_ALERT_INTERVAL seconds, so a
+    # human sees it either way.
+    NOW="$(date -u +%s)"
+    if [ $((NOW - HALT_ALERT_TS)) -ge "$HALT_ALERT_INTERVAL" ]; then
+      alert "voted-halt-wait" "${NODE_TYPE}: frozen at voted halt $HALT_HEIGHT (height=$HEIGHT), waiting for upgrade to ${HALT_MIN_VERSION:-<halt_min_version unset>}. Auto-heal will not restore at this height: upgrade the node image. If the network is already past height $((HALT_HEIGHT + 1)), this node is stuck and needs manual action."
+      HALT_ALERT_TS="$NOW"
+    fi
+  elif [ "$HALT_RC" -eq 2 ] && [ "$NODE_TYPE" = "validator" ]; then
+    # Validator: a restore during a whole-network halt can deadlock consensus
+    # (tmkms step regression), so an unknown halt state is never a reason to
+    # restore. The sample is not counted (earlier confirmed stuck samples are
+    # kept); alert at most every HALT_ALERT_INTERVAL. Never trigger from this
+    # branch, even if a count >= threshold survived a failed earlier restore.
+    NO_TRIGGER=1
+    echo "⚠️  could not read halt_height from $RPC — validator: cannot rule out a voted halt, sample not counted (stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD), no action."
+    NOW="$(date -u +%s)"
+    if [ $((NOW - UNKNOWN_ALERT_TS)) -ge "$HALT_ALERT_INTERVAL" ]; then
+      alert "halt-unknown" "${NODE_TYPE}: height frozen at $HEIGHT and halt_height unreadable from the local RPC. Auto-heal does not restore a validator without knowing the halt state: check the node manually."
+      UNKNOWN_ALERT_TS="$NOW"
+    fi
+  else
+    if [ "$HALT_RC" -eq 2 ]; then
+      echo "⚠️  could not read halt_height from $RPC — cannot rule out a voted halt, counting this sample as stuck."
+    fi
+    STUCK_COUNT=$((STUCK_COUNT + 1))
+    echo "⚠️  height unchanged at $HEIGHT (catching_up=false) — stuck_count=$STUCK_COUNT/$STUCK_THRESHOLD"
+  fi
 else
   echo "✅ height=$HEIGHT, progressing normally."
   STUCK_COUNT=0
+  HALT_ALERT_TS=0
+  UNKNOWN_ALERT_TS=0
 fi
 
 jq -n --arg h "$HEIGHT" --arg ts "$(date -u +%s)" --arg c "$STUCK_COUNT" \
-  '{height: $h, ts: ($ts|tonumber), stuck_count: ($c|tonumber)}' > "$STATE_FILE"
+  --arg a "$HALT_ALERT_TS" --arg u "$UNKNOWN_ALERT_TS" \
+  '{height: $h, ts: ($ts|tonumber), stuck_count: ($c|tonumber),
+    halt_alert_ts: ($a|tonumber), unknown_alert_ts: ($u|tonumber)}' > "$STATE_FILE"
 
-if [ "$STUCK_COUNT" -ge "$STUCK_THRESHOLD" ]; then
+if [ "$STUCK_COUNT" -ge "$STUCK_THRESHOLD" ] && [ -z "${NO_TRIGGER:-}" ]; then
   echo "🚨 stuck for $STUCK_COUNT consecutive checks (>= $STUCK_THRESHOLD) — triggering autoheal."
-  exec "$(dirname "$0")/autoheal.sh"
+  AUTOHEAL_FROM_CHECK=1 exec "$(dirname "$0")/autoheal.sh"
 fi

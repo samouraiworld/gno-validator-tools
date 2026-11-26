@@ -159,6 +159,18 @@ generation/derivation).
    `tmkms.toml` must be dealt with, or the validator silently never signs.
 4. `docker compose pull && docker compose up -d`, then `check_status.sh`.
 
+**GovDAO-voted halt and auto-heal.** At a voted halt every node stops at
+`halt_height` H and waits for the image in `halt_min_version`. The auto-heal
+check (`roles/autoheal`) recognizes a node frozen at H or H+1 and takes no
+action (journal: `voted halt at H, waiting for upgrade to <version>`), so you
+do not need to stop the `gno-autoheal-check.timer` before the halt. Upgrade
+with steps 1–4 above. Hosts that run auto-heal from before this guard must get
+the new scripts first (templates only; the timer stays as it is):
+
+```bash
+ansible-playbook -i inventory.yaml install-autoheal.yml --tags autoheal
+```
+
 ## 6. Logs and metrics
 
 Nothing to do here beyond `base_setup.yml`: the `alloy` role (already
