@@ -26,6 +26,14 @@ cd /devnet
 # validator-outage scenarios, where 'validator' itself may be the stopped one.
 for node in $NODES; do
   if wget -q -T 2 -O /dev/null "http://$node:26657/status" 2>/dev/null; then
+    # This stack signs locally. A live chain started with tmkms ('make up
+    # TMKMS=1') must not get its validator recreated with local signing
+    # mid-chain: neither signer knows what the other signed.
+    if [ "$(cat .signer-mode 2>/dev/null)" = "tmkms" ]; then
+      echo "❌ the running devnet signs with tmkms; this stack signs locally." >&2
+      echo "   Stop it first ('make down' in the devnet directory), or use 'make dev-up'." >&2
+      exit 1
+    fi
     echo "ℹ️  $node is running - skipping reset (use 'make dev-up' to restart from block 0)"
     exit 0
   fi
@@ -76,6 +84,9 @@ done
 rm -f tmkms/*/secrets/consensus_state.json
 # Snapshots of the wiped chain would be restored onto the new one by auto-heal.
 rm -f snapshots/*.tar.zst
+# Fresh chain, started by this stack with local signing (see the Makefile).
+echo local > .signer-mode
+chown "$OWNER" .signer-mode
 
 echo "🧹 Purging chain '$DEV_CHAIN' rows from the gnomonitoring database (keeping webhooks, contacts and Telegram subs)..."
 for table in daily_participations addr_monikers govdaos daily_participation_agregas alert_logs; do

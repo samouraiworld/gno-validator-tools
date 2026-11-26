@@ -131,8 +131,9 @@ ensure-bootstrap:
 # signing guards double-signing with priv_validator_state.json, tmkms with its
 # own consensus_state.json; neither follows the other, so a switch can sign a
 # height twice. .signer-mode (gitignored) records the mode the current chain
-# was started with; the chain resets (reinit, full-reinit, dev-up, clean-all)
-# clear it.
+# was started with: 'make up' writes it once compose succeeded; the chain
+# resets clear it (reinit-chain.sh, clean-all) or set it to local
+# (dev-chain-reset.sh, the dev stack has no tmkms).
 SIGNER_MODE := $(if $(filter 1,$(TMKMS)),tmkms,local)
 check-signer-mode:
 	@have="$$(cat .signer-mode 2>/dev/null)"; \
@@ -140,8 +141,7 @@ check-signer-mode:
 		echo "❌ this chain runs with $$have signing; this command asks for $(SIGNER_MODE) signing."; \
 		echo "   Keep the same TMKMS value, or switch on a fresh chain: make reinit$(if $(filter 1,$(TMKMS)), TMKMS=1,)"; \
 		exit 1; \
-	fi; \
-	echo "$(SIGNER_MODE)" > .signer-mode
+	fi
 
 # The stack is always torn down first: the chain-reset service only wipes
 # chain state when the validators are not running, so 'dev-up' guarantees a
@@ -150,7 +150,7 @@ check-signer-mode:
 dev-up: ensure-bootstrap
 	@test -f $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
 		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml missing - set GNOMONITORING_DIR to a gnomonitoring checkout"; exit 1; }
-	@grep -q 'DEVNET_DIR' $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
+	@grep -q '$${DEVNET_DIR' $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
 		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml does not use DEVNET_DIR: that gnomonitoring"; \
 		echo "   checkout still runs its own gnoland-test/ devnet. Update it, or use its gnoland-test/."; exit 1; }
 	@test "$(TMKMS)" != "1" || { echo "❌ the gnomonitoring dev stack has no tmkms: run dev-up without TMKMS=1"; exit 1; }
@@ -160,7 +160,6 @@ dev-up: ensure-bootstrap
 	docker compose $(ALL_PROFILES) down --remove-orphans
 	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
 	$(DEV_COMPOSE) up -d --build
-	@echo local > .signer-mode
 
 dev-down:
 	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
@@ -170,6 +169,7 @@ dev-logs:
 
 up: ensure-bootstrap check-signer-mode
 	docker compose up -d
+	@echo "$(SIGNER_MODE)" > .signer-mode
 
 # Everything the auto-heal scenarios need: tmkms-backed validator, validator4
 # and the snapshotter. Then take a first snapshot with 'make snapshot'.
@@ -190,7 +190,6 @@ down:
 
 reinit: clean-db
 	./reinit-chain.sh
-	rm -f .signer-mode
 	@$(MAKE) --no-print-directory up
 
 regen-genesis:
@@ -199,7 +198,6 @@ regen-genesis:
 
 full-reinit: regen-genesis clean-db
 	./reinit-chain.sh
-	rm -f .signer-mode
 	@$(MAKE) --no-print-directory up
 
 # Purge the local "dev" chain rows from the gnomonitoring backend DB. Chain data

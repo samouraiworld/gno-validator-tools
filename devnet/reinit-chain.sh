@@ -79,7 +79,9 @@ rm -f tmkms/*/secrets/consensus_state.json 2>/dev/null || true
 # Snapshots belong to the chain that was just wiped: auto-heal picks the
 # highest one, so a leftover would restore old-chain blocks onto the new chain.
 echo "🧹 Removing snapshots of the previous chain (if any)"
-rm -f snapshots/*.tar.zst 2>/dev/null || true
+rm -f snapshots/*.tar.zst
+# Fresh chain: the next 'make up' may pick either signer (see Makefile).
+rm -f .signer-mode
 
 echo "✅ Chain reinitialized."
 echo ""
