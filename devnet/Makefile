@@ -37,34 +37,16 @@ PG_USER      := gnomonitoring
 PG_DB        := gnomonitoring
 DEV_CHAIN    := dev
 
-# Full local stack (this devnet + gnomonitoring backend + Postgres), defined by
-# compose_dev_chain.yml in a gnomonitoring checkout. Default: the sibling
-# checkout next to gno-validator-tools. Override:
-#   make dev-up GNOMONITORING_DIR=/path/to/gnomonitoring
-# compose_dev_chain.yml finds this directory through DEVNET_DIR.
-# Both env files are needed: compose interpolates ${DOCKER_USER}/${GNO_IMAGE}
-# (this directory's .env) and ${POSTGRES_PASSWORD} (gnomonitoring's .env)
-# before reading any service env_file.
-GNOMONITORING_DIR ?= $(abspath $(CURDIR)/../../gnomonitoring)
-export DEVNET_DIR := $(CURDIR)
-DEV_COMPOSE := docker compose -f $(GNOMONITORING_DIR)/compose_dev_chain.yml \
-               --env-file $(GNOMONITORING_DIR)/.env --env-file $(CURDIR)/.env
-
-.PHONY: help dev-up dev-down dev-logs up up-full up-validator4 up-snapshotter ensure-bootstrap check-signer-mode \
+.PHONY: help up up-full up-validator4 up-snapshotter ensure-bootstrap check-signer-mode \
         down reinit regen-genesis full-reinit clean-db clean-all status logs \
         stop-val1 stop-val2 stop-val3 stop-val4 \
         start-val1 start-val2 start-val3 start-val4 \
         check-stuck autoheal snapshot snapshots restore-fullnode restore-validator \
         scenario1 scenario1-propose scenario1-execute scenario2 scenario2-restart scenario3 scenario3-restart \
-        scenario4 scenario4-restart scenario5 scenario-mute scenario-govdao-dead-chain scenario-halt \
+        scenario4 scenario4-restart scenario5 scenario-mute \
         scenario-autoheal-follower scenario-autoheal-validator scenario-autoheal-no-snapshot scenario-autoheal-cooldown
 
 help:
-	@echo "Full stack (devnet + gnomonitoring, $(GNOMONITORING_DIR)/compose_dev_chain.yml):"
-	@echo "  make dev-up            - tear down, reset the chain to block 0, purge dev DB rows, start everything"
-	@echo "  make dev-down          - stop and remove the whole stack (keeps the Postgres volume)"
-	@echo "  make dev-logs          - follow the gnomonitoring backend logs"
-	@echo ""
 	@echo "Chain lifecycle:"
 	@echo "  make up                - start validator/validator2/validator3 + tx-indexer + gnoweb (local signing)"
 	@echo "  make up TMKMS=1        - same, with validator signing through the tmkms sidecar (profile tmkms)"
@@ -111,11 +93,6 @@ help:
 	@echo "  make scenario4-restart - restart all validators"
 	@echo "  make scenario5         - GovDAO proposal voted NO (rejected-status path; fresh chain)"
 	@echo "  make scenario-mute     - keep validator4 down to exercise the resend dedup"
-	@echo "  make scenario-govdao-dead-chain"
-	@echo "                         - a 2nd chain with hanging RPCs must not delay dev's"
-	@echo "                           GovDAO ACCEPTED notice (dev stack, fresh chain; asserts, ~10 min)"
-	@echo "  make scenario-halt     - GovDAO-voted chain halt: scheduled notice, 2 reminders,"
-	@echo "                           resumed notice (dev stack, gno >= v1.8.0; asserts, ~10 min)"
 
 # Guard: the generated .env (P2P seeds) and genesis.json are required for the
 # chain to form. docker-compose has no default for SEEDS_*, so a missing .env
@@ -132,8 +109,9 @@ ensure-bootstrap:
 # own consensus_state.json; neither follows the other, so a switch can sign a
 # height twice. .signer-mode (gitignored) records the mode the current chain
 # was started with: 'make up' writes it once compose succeeded; the chain
-# resets clear it (reinit-chain.sh, clean-all) or set it to local
-# (dev-chain-reset.sh, the dev stack has no tmkms).
+# resets clear it (reinit-chain.sh, clean-all). gnomonitoring's dev stack,
+# which reuses this directory and signs locally, sets it to local when it
+# resets the chain.
 SIGNER_MODE := $(if $(filter 1,$(TMKMS)),tmkms,local)
 check-signer-mode:
 	@have="$$(cat .signer-mode 2>/dev/null)"; \
@@ -142,30 +120,6 @@ check-signer-mode:
 		echo "   Keep the same TMKMS value, or switch on a fresh chain: make reinit$(if $(filter 1,$(TMKMS)), TMKMS=1,)"; \
 		exit 1; \
 	fi
-
-# The stack is always torn down first: the chain-reset service only wipes
-# chain state when the validators are not running, so 'dev-up' guarantees a
-# fresh chain on every call. validator4 (phase2) is not started here; run
-# 'make scenario1' to onboard it. The dev stack has no tmkms and no snapshotter.
-dev-up: ensure-bootstrap
-	@test -f $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
-		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml missing - set GNOMONITORING_DIR to a gnomonitoring checkout"; exit 1; }
-	@grep -q '$${DEVNET_DIR' $(GNOMONITORING_DIR)/compose_dev_chain.yml || { \
-		echo "❌ $(GNOMONITORING_DIR)/compose_dev_chain.yml does not use DEVNET_DIR: that gnomonitoring"; \
-		echo "   checkout still runs its own gnoland-test/ devnet. Update it, or use its gnoland-test/."; exit 1; }
-	@test "$(TMKMS)" != "1" || { echo "❌ the gnomonitoring dev stack has no tmkms: run dev-up without TMKMS=1"; exit 1; }
-	@test -f $(GNOMONITORING_DIR)/.env || { echo "❌ $(GNOMONITORING_DIR)/.env missing - copy it from .env.example there"; exit 1; }
-	@test -f $(GNOMONITORING_DIR)/backend/config_dev_chain.yaml || { \
-		echo "❌ $(GNOMONITORING_DIR)/backend/config_dev_chain.yaml missing - copy it from config_dev_chain.yaml.template"; exit 1; }
-	docker compose $(ALL_PROFILES) down --remove-orphans
-	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
-	$(DEV_COMPOSE) up -d --build
-
-dev-down:
-	$(DEV_COMPOSE) --profile phase2 down --remove-orphans
-
-dev-logs:
-	docker logs -f gnomonitoring-backend
 
 up: ensure-bootstrap check-signer-mode
 	docker compose up -d
@@ -292,9 +246,10 @@ scenario1: up-validator4
 	@$(MAKE) --no-print-directory scenario1-propose
 	@$(MAKE) --no-print-directory scenario1-execute
 
-# scenario1 in two halves: scenario-govdao-dead-chain makes sure proposal #0 is
-# tracked as IN PROGRESS between the two, so its later ACCEPTED is a live
-# status change the watcher announces.
+# scenario1 in two halves, for callers that act between the proposal and the
+# vote: gnomonitoring's GovDAO scenarios run 'make -C <this dir>
+# scenario1-propose', check that proposal #0 is tracked as IN PROGRESS, then
+# run scenario1-execute, so its later ACCEPTED is a live status change.
 scenario1-propose: up-validator4
 	@echo ">>> Step 1: initialize GovDAO (InitWithUsers)"
 	@if gnokey query vm/qeval -remote $(RPC) \
@@ -510,22 +465,3 @@ scenario-autoheal-cooldown:
 	-./autoheal.sh validator4
 	@echo "==> Second run immediately after (expect cooldown-blocked, exit 1)"
 	./autoheal.sh validator4; echo "exit=$$?  (expect 1)"
-
-# scenario-govdao-dead-chain: reproduces the 2026-11-09 incident, where an
-# enabled chain whose RPC endpoints hang delayed every chain's GovDAO status
-# notifications by about an hour, and checks the fix end to end. Unlike the
-# scenarios above it asserts the outcome itself and exits non-zero on failure.
-# Runs on the dev stack, fresh chain expected (targets proposal #0): 'make dev-up'
-# first. See the header of scenario-govdao-dead-chain.sh for the steps.
-scenario-govdao-dead-chain: up-validator4
-	MAKE="$(MAKE)" DEV_COMPOSE="$(DEV_COMPOSE)" GNOMONITORING_DIR="$(GNOMONITORING_DIR)" RPC="$(RPC)" \
-		PG_CONTAINER="$(PG_CONTAINER)" PG_USER="$(PG_USER)" PG_DB="$(PG_DB)" ./scenario-govdao-dead-chain.sh
-
-# scenario-halt: schedules a chain halt by GovDAO vote (r/sys/params
-# NewSetHaltRequest, gno v1.8.0 or later) and checks the halt notices: scheduled,
-# both reminders, resumed. Runs on the dev stack ('make dev-up' first). Asserts
-# the outcome itself and exits non-zero on failure. See the header of
-# scenario-halt.sh for the steps.
-scenario-halt:
-	DEV_COMPOSE="$(DEV_COMPOSE)" RPC="$(RPC)" PG_CONTAINER="$(PG_CONTAINER)" PG_USER="$(PG_USER)" \
-		PG_DB="$(PG_DB)" DEV_HOME="$(DEV_HOME)" DEV_PASS="$(DEV_PASS)" ./scenario-halt.sh
